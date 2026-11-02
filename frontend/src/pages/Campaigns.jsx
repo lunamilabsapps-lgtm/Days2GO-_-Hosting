@@ -41,7 +41,9 @@ export default function Campaigns() {
   const s = settings;
   return (
     <div className="space-y-6">
-      <PageHeader eyebrow="Outreach" title="Email Campaigns" desc="Nothing is ever sent just because it was generated. Review, approve, then run a campaign." />
+      <PageHeader eyebrow="Outreach" title="Email Campaigns" desc="Nothing is ever sent just because it was generated. Review, approve, then run a campaign.">
+        <Button variant="outline" data-testid="drafts-rewrite-button" onClick={async () => { toast.info("Rewriting unedited pending emails…"); try { const r = await api.post("/drafts/rewrite-pending"); toast.success(`${r.data.rewritten} email(s) rewritten`); load(); } catch (e) { toast.error(errMsg(e)); } }}>Rewrite pending emails</Button>
+      </PageHeader>
       {s && (s.sending.test_mode ? (
         <div className="panel flex items-start gap-3 border-amber-500/40 p-4 text-sm" data-testid="campaign-test-mode-banner"><FlaskConical className="h-5 w-5 shrink-0 text-amber-500" /><div><b>Test mode is ON.</b> Campaigns send only to <span className="font-mono">{s.sending.test_recipient}</span>{s.resend.api_key_set ? "" : " — and since no Resend key is configured, sends are logged as dry runs only"}. Real prospects cannot be emailed until you switch test mode off in Settings.</div></div>
       ) : (!s.compliance.configured || !s.compliance.offer_reviewed || !s.resend.api_key_set) && (

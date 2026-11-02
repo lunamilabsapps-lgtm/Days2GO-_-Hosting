@@ -558,6 +558,23 @@ async def list_drafts(status: str = "", campaign_id: str = "", user=Depends(requ
     return docs
 
 
+@api.post("/drafts/rewrite-pending")
+async def rewrite_pending(user=Depends(require_admin)):
+    s, cat, n = await get_settings(), await services_catalogue(), 0
+    for d in await db.drafts.find({"status": {"$in": ["pending_approval", "ineligible"]}, "edited": {"$ne": True}}, {"_id": 0}).to_list(500):
+        b = await db.businesses.find_one({"id": d["business_id"]}, {"_id": 0})
+        a = await db.assessments.find_one({"id": d["assessment_id"]}, {"_id": 0})
+        contacts = await db.contacts.find({"business_id": d["business_id"], "type": "email"}, {"_id": 0}).to_list(20)
+        if b and a and contacts:
+            try:
+                await generate_draft(b, a, contacts, s, cat)
+                n += 1
+            except AIError:
+                pass
+    await audit("drafts_rewritten", "draft", None, {"count": n}, user["email"])
+    return {"rewritten": n}
+
+
 class DraftPatch(BaseModel):
     subject: str
     body: str

@@ -340,13 +340,24 @@ async def assess_business(b, search, slot):
     return a
 
 
-EMAIL_SYSTEM = """You write short, genuine outreach emails for Bright Coda (an Australian AI software engineering company
-that builds websites and practical software for local businesses). Conversational Australian English, warm, plain
-language, no jargon, no hype, no exclamation-mark spam. 100-160 words. Reference ONE specific, verified finding from the
-assessment, explain simply why it matters commercially, suggest ONE matching approved service, and end with a friendly
-low-pressure call to action. Use only the approved service information provided; never mention prices unless given.
-Never invent facts about the business. Do not include an unsubscribe line or signature block (added automatically).
+EMAIL_SYSTEM = """You write a short personal email from one real person to a local business owner. It must read like a
+local bloke typed it himself in a couple of minutes, not like marketing. Conversational Australian English.
+Rules:
+- 70-110 words in the body. Short sentences. 3 short paragraphs max.
+- Open with a simple greeting (e.g. "Hi there," or "Hi <business> team,"). No "I hope this email finds you well".
+- Early on, mention naturally (once, in your own words) that the sender is local, based in {location}, and has
+  {experience}. Keep it casual, not a CV.
+- Mention ONE specific, verified thing noticed on their website (or that no website was found), and in one sentence why
+  it might cost them customers. Never invent facts.
+- Suggest ONE matching approved service in plain words (no product names in capitals, no jargon, no prices unless given).
+- End with a relaxed, no-pressure ask, and say they're welcome to call or text on {mobile}.
+- Banned: exclamation marks, "leverage", "solutions", "elevate", "take your business to the next level", "digital
+  presence", "I came across", bullet points, emojis.
+- Do NOT write a sign-off or name at the end (added automatically). No unsubscribe line.
+- Subject: 3-7 words, lower-key and specific, like a person would write.
 Respond as JSON: {"subject": "", "body": "", "finding_used": "", "service_id": ""}"""
+
+SIGNOFF_RE = re.compile(r"\n\s*(cheers|thanks|regards|kind regards|best|warm regards|talk soon)[,.]?\s*(\n.*)?$", re.I | re.S)
 
 
 async def generate_draft(b, a, email_contacts, s, cat):
@@ -357,9 +368,12 @@ Assessment summary: {a.get('summary')}
 Verified issues: {json.dumps(a.get('verified_issues', []))}
 Opportunities: {json.dumps(a.get('opportunities', []))}
 Approved services: {json.dumps([{k: x.get(k) for k in ('id','name','description','features','pricing','delivery_scope')} for x in cat])}
-Sender first name for sign-off: {s['sender'].get('signature_name') or s['sender']['name']}"""
-    out = parse_json(await call_ai("email", EMAIL_SYSTEM, prompt, b["id"], 1200))
-    body = out.get("body", "").strip()
+Sender: {s['sender'].get('signature_name') or s['sender']['name']}, based in {s['sender'].get('location')}, mobile {s['sender'].get('mobile')}"""
+    snd = s["sender"]
+    system = EMAIL_SYSTEM.replace("{location}", snd.get("location") or "Melbourne").replace(
+        "{experience}", snd.get("experience") or "years in tech").replace("{mobile}", snd.get("mobile") or "the number below")
+    out = parse_json(await call_ai("email", system, prompt, b["id"], 1200))
+    body = SIGNOFF_RE.sub("", out.get("body", "").strip()).strip()
     elig, reasons, consent = await check_eligibility(b, best, a, s)
     d = {"id": uid(), "business_id": b["id"], "business_name": b["name"], "assessment_id": a["id"],
          "subject": out.get("subject", "").strip(), "body": body, "finding_used": out.get("finding_used"),

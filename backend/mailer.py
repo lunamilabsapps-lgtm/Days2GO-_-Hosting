@@ -21,11 +21,12 @@ def compose_body(d, s, token):
     sig = snd.get("signature_name") or snd["name"]
     ident = " | ".join(x for x in [snd.get("business_name"), f"ABN {snd['abn']}" if snd.get("abn") else "",
                                    snd.get("business_address"), snd.get("website")] if x)
-    text = f"{d['body']}\n\n{sig}\n{snd.get('business_name')}\n\n--\n{ident}\nYou received this one-off email because your business email is published on your website. " \
+    sig_lines = [x for x in [sig if sig != snd.get("business_name") else "", " · ".join(y for y in [snd.get("business_name"), snd.get("location")] if y), snd.get("mobile")] if x]
+    text = f"{d['body']}\n\nCheers,\n" + "\n".join(sig_lines) + "\n\n--\n" + f"{ident}\nYou received this one-off email because your business email is published on your website. " \
            f"If you'd rather not hear from us, unsubscribe here: {unsub}"
     html_body = "".join(f"<p>{p.replace(chr(10), '<br>')}</p>" for p in d["body"].split("\n\n"))
     html = f"""<div style="font-family:Arial,sans-serif;font-size:15px;line-height:1.55;color:#1f2937">{html_body}
-<p>{sig}<br>{snd.get('business_name')}</p><hr style="border:none;border-top:1px solid #e5e7eb">
+<p>Cheers,<br>{'<br>'.join(sig_lines)}</p><hr style="border:none;border-top:1px solid #e5e7eb">
 <p style="font-size:12px;color:#6b7280">{ident}<br>You received this one-off email because your business email is published on your website.
 <a href="{unsub}">Unsubscribe</a></p></div>"""
     return text, html, unsub
