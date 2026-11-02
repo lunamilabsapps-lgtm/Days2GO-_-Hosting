@@ -17,7 +17,7 @@ export default function LiveAgent() {
       </PageHeader>
       {!state?.worker_alive && state && <div className="panel border-red-500/40 p-4 text-sm text-red-500" data-testid="worker-offline-banner">Background worker is not reporting a heartbeat. Check the worker service.</div>}
       {state?.state !== "running" && state && <div className="panel border-amber-500/40 p-4 text-sm text-amber-600 dark:text-amber-400" data-testid="agent-paused-banner">Agent is {state.state}. Press Resume to continue from the last checkpoint.</div>}
-      <div className="grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.5fr_1fr]">
         <div className="min-w-0 space-y-4">
           <LiveBusinessCard slot={busy[0] || discovery} />
           {busy.slice(1).map((s) => <LiveBusinessCard key={s.updated_at + (s.business?.id || "")} slot={s} big={false} />)}

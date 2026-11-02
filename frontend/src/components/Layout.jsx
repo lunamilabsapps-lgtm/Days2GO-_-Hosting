@@ -53,7 +53,11 @@ export default function Layout() {
     };
     load();
     const t = setInterval(load, 8000);
-    return () => clearInterval(t);
+    window.addEventListener("agent-changed", load);
+    return () => {
+      clearInterval(t);
+      window.removeEventListener("agent-changed", load);
+    };
   }, []);
 
   const logout = () => {
@@ -112,7 +116,7 @@ export default function Layout() {
             <button data-testid="logout-button" onClick={logout} className="rounded-md p-2 hover:bg-accent" title="Sign out"><LogOut className="h-4 w-4" /></button>
           </div>
         </header>
-        <main className="flex-1 px-4 py-8 md:px-8 lg:px-10">
+        <main className="min-w-0 flex-1 px-4 py-8 md:px-8 lg:px-10">
           <Outlet context={{ stats, st }} />
         </main>
       </div>

@@ -1,0 +1,66 @@
+{
+  "summary": "First full run of backend and frontend tests for Bright Coda Local Business Scout. Backend: 44/44 pytest tests passed (tests/test_scout_api.py). Covered: auth and lockout, 401 protection on 17 routes, stats, SSE stream, parse, CSV export, draft PATCH/approve, blocking approval of ineligible drafts, the full test-mode campaign flow (outbound status test_dry_run, sent only to delivered@resend.dev), blocking live sending with 'Setup required before live sending', unsubscribe (suppression added, business status unsubscribed, pending drafts blocked, suppression cannot be deleted), Resend webhook (bad signature returns 400, duplicate svix-id handled once, complaint adds suppression), merge of TEST businesses, exclude/unexclude/reassess, services CRUD with the Visabal rule, integrations (ai/nominatim/overpass/screenshots ok; resend/imap give clear 'not set' messages), backups and audit. Reply matching via mailer.handle_reply works: business reply_status 'replied', follow_up_status 'cancelled', draft blocked, urgent notification, green tag shown on Replies, Notifications and Prospects. Restart recovery works: progress was kept (zones_done 12 -> 13 after `supervisorctl restart`). Frontend: login (wrong password shows an error), dashboard (12 stat cards, live card, streaming timeline), live agent pause/resume/stop (the API state changes correctly), New Search (parse fills florists/Geelong/Victoria, resolve shows 19 suburb chips, start redirects to /live), coverage map (262 zone circles, click shows suburb-detail), prospects (filters, search, CSV download, all 5 detail tabs, notes persist, reassess, exclude/unexclude), campaigns UI (approve, create, start, dry-run send, pause/resume/stop), Replies, Notifications, Integrations, Settings tabs (reports show cost and cost per qualified lead; 'Back up now' 3 -> 4 files; audit list), Services (Visabal approval blocked), theme toggle. Problems found: mobile horizontal overflow on Dashboard and Live; new searches starve behind the large Melbourne search; the max_businesses cap marks zones as fully covered; a stale race in the campaigns filter; the X-Forwarded-For lockout bypass; settings writes have no validation; the overpass integration test times out behind the proxy.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "worker.discovery_step (POST /api/searches)", "issue": "A single discovery loop always picks the OLDEST running search (sort created_at asc). Any new search (e.g. florists Geelong, 19 zones, max 3) stays 'queued' with zones_done 0 until the 262-zone Melbourne butchers search finishes its discovery (hours). Verified: the Geelong search stayed at stage 'queued'. Even pausing Melbourne does not help while a zone's Overpass call is in flight. That call can take up to about 12 min per zone: 3 endpoints x 3 attempts x 75s timeout plus backoff (stuck on 'Albert Park' for over 6 min while Overpass was degraded). Suggest round-robin between running searches, or prioritising small searches.", "priority": "HIGH"},
+      {"endpoint": "worker.discovery_step (max_businesses)", "issue": "When max_businesses is reached the loop breaks mid-zone (line ~75), but the zone's coverage is still saved as status 'completed' with last_searched_at. Later searches of the same category reuse that coverage (line 43) and never discover the remaining businesses in the zone. Only mark coverage completed if every element was ingested (or save a 'partial' status).", "priority": "HIGH"},
+      {"endpoint": "POST /api/auth/login", "issue": "Lockout key is email|X-Forwarded-For[0], and the leftmost XFF value is controlled by the client. Verified: 6 bad attempts with X-Forwarded-For 10.9.9.1..6 all returned 401 and none locked. An attacker can brute-force without limit. Key the lockout on email only (or use the rightmost/trusted proxy IP).", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "PUT /api/settings/{section}", "issue": "No type or key validation. PUT sending {daily_limit:'abc'} returned 200 and stored a string (restored to 30 by tester). sender_step then does `sent_today >= 'abc'`, which raises TypeError. Arbitrary keys are also accepted. Add Pydantic models per section."},
+      {"endpoint": "PUT /api/settings/resend", "issue": "Secret fields cannot be cleared: an empty value is skipped. There is no way to remove a webhook secret or API key from the UI/API."},
+      {"endpoint": "POST /api/integrations/test/overpass", "issue": "The retry chain can exceed the ingress timeout of about 100s. The UI then shows the Cloudflare HTML error 'origin web server returned an invalid or incomplete response' instead of a clear message. Use a short overall timeout (e.g. 20s, 1 attempt per endpoint) for the test button."},
+      {"endpoint": "GET /api/unsubscribe/{token}", "issue": "In test mode the email goes to the test recipient, but clicking its unsubscribe link permanently suppresses the REAL business address (out['to']), and that suppression cannot be deleted. Consider skipping suppression, or scoping it, when outbound.test_mode is true. Also note that a GET unsubscribe can be triggered by link scanners."},
+      {"endpoint": "assess.check_eligibility", "issue": "Inserts a new consent_record on every call (approve, approve-all, repeated approvals), creating duplicate consent records."},
+      {"endpoint": "worker.sender_step", "issue": "The daily limit window uses UTC midnight, not the sending timezone (Australia/Melbourne)."},
+      {"endpoint": "PATCH /api/prospects/{bid}, POST /api/prospects/{bid}/reassess", "issue": "Return 200 for a nonexistent id instead of 404."},
+      {"endpoint": "POST /api/prospects/{bid}/exclude (exclude:false)", "issue": "Unexcluding does not restore drafts that were blocked by the exclusion (they stay 'blocked'). This may be intended; it should be documented in the UI."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Mobile layout (390px) Dashboard + Live Agent", "issue": "Horizontal overflow: Dashboard scrollWidth 412 vs 390; Live page 507 vs 390, so the live card and timeline text are cut off at the right. Root cause: the page grids `grid gap-6 xl:grid-cols-[...]` have an implicit auto column sized by min-content on mobile, and `<main className='flex-1 ...'>` lacks min-w-0. Fix: add `grid-cols-1` (minmax(0,1fr)) to those grids in Dashboard.jsx (lines 55, 64) and LiveAgent.jsx (line 20), and `min-w-0` to main in Layout.jsx:115.", "selector": "[data-testid=live-prospect-card], [data-testid=dashboard-open-live]", "priority": "HIGH"},
+      {"component": "Campaigns drafts filter", "issue": "Race condition. load() on status change does not cancel or ignore stale requests, and the initial pending_approval request is fired twice. If the older response arrives last, it overwrites the list: the filter shows 'approved' but pending drafts are listed (reproduced once). Add an AbortController or a request-id guard.", "selector": "[data-testid=drafts-status-filter]", "priority": "MEDIUM"},
+      {"component": "Header agent-status-pill", "issue": "Polls every 8s, so after Pause/Stop it still says 'Agent working' for up to 8s while the Live page banner already shows paused. Update the pill from the SSE 'state' event or refresh it right after the action.", "selector": "[data-testid=agent-status-pill]", "priority": "LOW"},
+      {"component": "Campaign toast", "issue": "Typo 'Campaign stoped' (action + 'ed').", "selector": "[data-sonner-toast]", "priority": "LOW"},
+      {"component": "Campaign card", "issue": "Shows redundant '1 sent · 1 sent' (draft status count plus sent_count).", "selector": "[data-testid^=campaign-card-]", "priority": "LOW"}
+    ],
+    "integration_issues": [
+      {"flow": "Integrations > Overpass Test", "issue": "Times out (over 60s) and shows a Cloudflare error when Overpass is degraded. The backend pytest call passed earlier, so this is flaky and depends on upstream.", "affected_selectors": ["[data-testid=integration-test-overpass]", "[data-testid=integration-result-overpass]"]}
+    ],
+    "design_issues": [
+      {"screen": "Global", "issues": ["Native <select> elements are used for filters, state, area, coverage and timeline instead of shadcn Select; they look inconsistent in dark mode", "Agent Stop uses native window.confirm instead of a shadcn AlertDialog"]},
+      {"screen": "Integrations / Campaigns / Services", "issues": ["Content is capped at about half width on 1920px, leaving a large empty right area"]},
+      {"screen": "Prospect detail (no website)", "issues": ["The 'Technical checks' panel renders empty"]},
+      {"screen": "Coverage", "issues": ["Zones whose results were all duplicates (e.g. Abbotsford: 6 results, 0 new) show '0 prospects', which can confuse users; consider showing linked or known businesses"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_scout_api.py", "/app/backend/tests/conftest.py", "/app/backend/tests/manual_reply_check.py", "/app/test_reports/pytest/pytest_results.xml"],
+  "action_items": [
+    "Make discovery fair across running searches (round-robin or priority for small searches) and cap per-zone Overpass time so new searches start promptly",
+    "Do not mark zone coverage 'completed' when max_businesses cut ingestion short",
+    "Fix login lockout bypass via spoofed X-Forwarded-For",
+    "Fix mobile horizontal overflow on Dashboard/Live (grid-cols-1 / min-w-0)",
+    "Guard against stale responses in the Campaigns drafts filter",
+    "Add Pydantic validation for PUT /api/settings/{section}; allow clearing secrets",
+    "Use a short timeout for the Integrations overpass test",
+    "Skip permanent suppression of the real address when a test-mode unsubscribe link is clicked",
+    "Minor: toast typo 'stoped', duplicate 'sent' label, header pill lag, duplicate consent_records, 404 for unknown prospect patch/reassess"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1018 lines; split it into routers (auth, searches, prospects, campaigns, settings, webhooks)",
+    "The webhook duplicate detection catches every Exception from insert_one; catch only DuplicateKeyError so real DB errors are not reported as duplicates",
+    "handle_reply assumes the business exists (b may be None, causing a crash on b['id'])",
+    "Per-search retry_count (not per zone) decides when to skip a failing zone",
+    "check_eligibility writes to the DB (consent_records) as a side effect even on re-checks",
+    "Creating or editing files under /app/backend (including tests/) triggers a uvicorn hot reload, which restarts the worker mid-run"
+  ],
+  "updated_files": ["/app/backend/tests/conftest.py", "/app/backend/tests/test_scout_api.py", "/app/backend/tests/manual_reply_check.py"],
+  "success_rate": {"backend": "100% of 44 pytest tests; 3 high-priority logic/security issues found by code review and manual checks", "frontend": "about 85% (all flows work on desktop; mobile overflow on Dashboard/Live; filter race)"},
+  "test_credentials": "/app/memory/test_credentials.md is EMPTY (template only). Used the admin credentials from the review request: leon.tex610@gmail.com / 7KVpKVjP6G_VuXK1. The main agent should write them into test_credentials.md.",
+  "seed_data_creation": "All TEST_ data (businesses, contacts, assessments, drafts, outbound, campaigns, services, suppressions, notifications, login_attempts, the test-created Geelong and TEST_reuse searches) was deleted. Audit entries and activity events for TEST actions remain (append-only logs). The Geelong region/zones created by resolve remain. One real service ('Business automation') was accidentally renamed during UI testing and restored in Mongo (name and approved=true). Sender name, sending settings (9-17, weekdays_only true, interval 180, daily_limit 30), test_mode=true and an empty webhook_secret were all restored.",
+  "retest_needed": true,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Run: cd /app/backend/tests && python -m pytest test_scout_api.py -n0 -q (pytest.ini enables xdist; use -n0 to avoid races because the tests toggle test_mode and sending hours). The tests seed their own TEST_ data in Mongo and clean it up. manual_reply_check.py setup|cleanup tests handle_reply. Agent state is 'running' and the Melbourne butchers search is 'running' (about 14/262 zones). Overpass upstream was degraded during this run (mail.ru 504, overpass-api.de refused, kumi timeout), so discovery was slow. Verify fixes for: discovery fairness, the max_businesses coverage bug, XFF lockout, mobile overflow, the campaigns filter race. Coverage reuse ('coverage_reused' event) could NOT be verified because the discovery loop was blocked on the Melbourne zone.",
+  "rca of the issue": "New search not starting: worker.discovery_step uses find_one({status:'running', discovery_status != completed}, sort created_at asc), so only the oldest search progresses, and overpass() retries serially for up to about 12 min. Mobile overflow: CSS grid without explicit grid-cols-1 sizes its implicit column to min-content; main flex-1 has no min-w-0. Filter race: Campaigns.jsx load() has no stale-response guard. Lockout bypass: server.py line 62 trusts the client-supplied X-Forwarded-For[0]."
+}

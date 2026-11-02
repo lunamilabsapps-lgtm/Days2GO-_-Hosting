@@ -18,7 +18,8 @@ export default function Campaigns() {
   const [settings, setSettings] = useState(null);
 
   const load = () => {
-    api.get(`/drafts?status=${status}`).then((r) => setDrafts(r.data));
+    const req = (window.__draftsReq = (window.__draftsReq || 0) + 1);
+    api.get(`/drafts?status=${status}`).then((r) => { if (req === window.__draftsReq) setDrafts(r.data); });
     api.get("/campaigns").then((r) => setCamps(r.data));
   };
   useEffect(() => { load(); }, [status]); // eslint-disable-line
@@ -33,7 +34,7 @@ export default function Campaigns() {
     } catch (e) { toast.error(errMsg(e)); }
   };
   const act = async (id, a) => {
-    try { const r = await api.post(`/campaigns/${id}/${a}`); toast.success(a === "approve-all" ? `${r.data.approved} email(s) approved` : `Campaign ${a}ed`.replace("eed", "ed")); load(); } catch (e) { toast.error(errMsg(e)); }
+    try { const r = await api.post(`/campaigns/${id}/${a}`); toast.success(a === "approve-all" ? `${r.data.approved} email(s) approved` : `Campaign ${{ start: "started", resume: "resumed", pause: "paused", stop: "stopped" }[a]}`); load(); } catch (e) { toast.error(errMsg(e)); }
   };
   const approve = async (id) => { try { await api.post(`/drafts/${id}/approve`); toast.success("Approved"); load(); } catch (e) { toast.error(errMsg(e)); } };
   const toggle = (id) => setSel((p) => { const n = new Set(p); n.has(id) ? n.delete(id) : n.add(id); return n; });
@@ -81,7 +82,7 @@ export default function Campaigns() {
             {camps.map((c) => (
               <div key={c.id} className="rounded-lg border p-4" data-testid={`campaign-card-${c.id}`}>
                 <div className="flex items-center justify-between gap-2"><button className="font-medium hover:text-primary" onClick={() => setOpen(open === c.id ? null : c.id)} data-testid={`campaign-open-${c.id}`}>{c.name}</button><StatusBadge status={c.status} testid={`campaign-status-${c.id}`} /></div>
-                <div className="mt-1 text-xs text-muted-foreground">{Object.entries(c.drafts || {}).map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(" · ")} · {c.sent_count} sent · {c.delivered} delivered · {c.replies} replies · {c.bounces} bounces</div>
+                <div className="mt-1 text-xs text-muted-foreground">{Object.entries(c.drafts || {}).filter(([k]) => k !== "sent").map(([k, v]) => `${v} ${k.replace("_", " ")}`).join(" · ")} · {c.sent_count} sent · {c.delivered} delivered · {c.replies} replies · {c.bounces} bounces</div>
                 {c.waiting_reason && c.status === "running" && <div className="mt-1 text-xs text-amber-500">Waiting: {c.waiting_reason}</div>}
                 <div className="mt-3 flex flex-wrap gap-2">
                   <Button size="sm" variant="outline" onClick={() => act(c.id, "approve-all")} data-testid={`campaign-approve-all-${c.id}`}><CheckCheck className="mr-1 h-4 w-4" />Approve eligible</Button>

@@ -52,7 +52,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
         {cards.map(([t, v, I, id, acc, hint]) => <StatCard key={id} title={t} value={v} icon={I} testid={id} accent={acc} hint={hint} />)}
       </div>
-      <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
         <div className="min-w-0 space-y-4">
           <div className="flex items-center justify-between"><h2 className="font-display text-xl font-bold">Live agent</h2><Link to="/live" className="text-sm text-primary" data-testid="dashboard-open-live">Open full view →</Link></div>
           <LiveBusinessCard slot={slots[0] || (state?.current || []).find((c) => c.stage === "searching")} />
@@ -61,7 +61,7 @@ export default function Dashboard() {
           <div className="max-h-[360px] overflow-y-auto pr-1"><Timeline events={events} max={30} /></div>
         </Section>
       </div>
-      <div className="grid gap-6 xl:grid-cols-[1.6fr_1fr]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.6fr_1fr]">
         <Section title="Prospecting campaigns">
           <div className="space-y-3">
             {searches.slice(0, 6).map((x) => <SearchProgress key={x.id} s={x} onAction={onAction} />)}

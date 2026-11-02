@@ -40,13 +40,13 @@ def category_filters(category, subcategory=None):
     return filters
 
 
-async def overpass(query):
+async def overpass(query, quick=False):
     s = await get_settings()
     last = None
     for ep in s["overpass_endpoints"]:
-        for attempt in range(3):
+        for attempt in range(1 if quick else 3):
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(75, connect=8), headers={"User-Agent": USER_AGENT}) as c:
+                async with httpx.AsyncClient(timeout=httpx.Timeout(12 if quick else 75, connect=6), headers={"User-Agent": USER_AGENT}) as c:
                     r = await c.post(ep, data={"data": query})
                 if r.status_code == 200:
                     return r.json(), ep
@@ -58,7 +58,8 @@ async def overpass(query):
                 break
             except Exception as e:
                 last = f"{ep} {type(e).__name__}"
-            await asyncio.sleep(3 * 2 ** attempt)
+            if not quick:
+                await asyncio.sleep(3 * 2 ** attempt)
     raise RuntimeError(f"All Overpass endpoints failed: {last}")
 
 

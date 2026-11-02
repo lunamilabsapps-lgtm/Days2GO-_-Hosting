@@ -392,13 +392,13 @@ async def check_eligibility(b, contact, a, s):
         reasons.append("business has already replied")
     consent_id = None
     if not reasons:
-        consent_id = uid()
-        await db.consent_records.insert_one({
-            "id": consent_id, "business_id": b["id"], "email": contact["value"],
-            "basis": s["compliance"]["default_basis"], "source_url": contact["source_url"],
-            "evidence": "Address conspicuously published on the business's own public source; message relates to the "
-                        "business's role (website/online presence); no statement refusing commercial email found.",
-            "recorded_at": iso()})
+        r = await db.consent_records.find_one_and_update(
+            {"business_id": b["id"], "email": contact["value"]},
+            {"$set": {"basis": s["compliance"]["default_basis"], "source_url": contact["source_url"], "recorded_at": iso(),
+                      "evidence": "Address conspicuously published on the business's own public source; message relates to the "
+                                  "business's role (website/online presence); no statement refusing commercial email found."},
+             "$setOnInsert": {"id": uid()}}, upsert=True, return_document=True, projection={"_id": 0, "id": 1})
+        consent_id = r["id"]
     return not reasons, reasons, consent_id
 
 

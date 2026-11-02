@@ -20,6 +20,7 @@ export function AgentControls({ state, onChange }) {
     try {
       const r = await api.post(`/agent/${a}`);
       onChange?.(r.data);
+      window.dispatchEvent(new Event("agent-changed"));
       toast.success(`Agent ${a === "resume" ? "resumed" : a === "pause" ? "paused" : "stopped"}`);
     } catch (e) {
       toast.error(errMsg(e));

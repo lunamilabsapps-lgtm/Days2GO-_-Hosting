@@ -26,9 +26,11 @@ async def recover():
 
 
 async def discovery_step(s):
-    search = await db.searches.find_one({"status": "running", "discovery_status": {"$ne": "completed"}}, {"_id": 0}, sort=[("created_at", 1)])
+    search = await db.searches.find_one({"status": "running", "discovery_status": {"$ne": "completed"}}, {"_id": 0},
+                                        sort=[("last_discovery_at", 1), ("created_at", 1)])
     if not search:
         return False
+    await db.searches.update_one({"id": search["id"]}, {"$set": {"last_discovery_at": iso()}})
     done = set(search.get("zones_done", []))
     pending = [z for z in search["zone_ids"] if z not in done]
     if not pending or (search.get("max_businesses") and search["progress"]["new"] >= search["max_businesses"]):
@@ -66,6 +68,7 @@ async def discovery_step(s):
         await asyncio.sleep(min(60, 5 * 2 ** min(search.get("retry_count") or 0, 4)))
         return True
     new = dup = 0
+    partial = False
     for el in els:
         c = osm_to_candidate(el, zone, region, search["category"])
         await activity("discovered", f"Business discovered: {c['name']}", c, search["id"], data={"source": c["source_url"]}, slot=0)
@@ -73,8 +76,9 @@ async def discovery_step(s):
         new += res == "new"
         dup += res == "duplicate"
         if search.get("max_businesses") and search["progress"]["new"] + new >= search["max_businesses"]:
+            partial = el is not els[-1]
             break
-    await db.coverage.update_one(cov_key, {"$set": {"status": "completed", "last_searched_at": iso(), "results_count": len(els),
+    await db.coverage.update_one(cov_key, {"$set": {"status": "needs_research" if partial else "completed", "last_searched_at": iso(), "results_count": len(els),
                                                     "new_count": new, "endpoint": ep, "query": q},
                                            "$push": {"history": {"at": iso(), "results": len(els), "new": new, "search_id": search["id"]}}})
     await db.searches.update_one({"id": search["id"]}, {"$addToSet": {"zones_done": zone["id"]}, "$set": {"retry_count": 0},
@@ -172,7 +176,8 @@ async def sender_step():
         if missing:
             await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": "setup required: " + ", ".join(missing)}})
             return
-    day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0).isoformat()
+    from zoneinfo import ZoneInfo
+    day = datetime.now(ZoneInfo(s["sending"]["timezone"])).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     sent_today = await db.outbound.count_documents({"created_at": {"$gte": day}, "test_mode": test})
     if sent_today >= s["sending"]["daily_limit"]:
         await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": "daily sending limit reached"}})

@@ -15,7 +15,7 @@ from pydantic import BaseModel
 import httpx
 from svix.webhooks import Webhook, WebhookVerificationError
 from core import (db, uid, iso, log, clean, get_settings, ensure_settings, create_indexes, audit, notify, activity,
-                  encrypt, SECRET_FIELDS, SCREENSHOT_DIR, BACKUP_DIR, add_suppression, USER_AGENT)
+                  encrypt, SECRET_FIELDS, SCREENSHOT_DIR, BACKUP_DIR, add_suppression, USER_AGENT, DEFAULT_SETTINGS)
 from discovery import resolve_region, filter_zones, CATEGORY_TAGS, overpass, geocode
 from ai import call_ai, parse_json, ai_configured, AIError
 from assess import generate_draft, services_catalogue, check_eligibility
@@ -60,7 +60,7 @@ class LoginIn(BaseModel):
 async def login(body: LoginIn, request: Request):
     email = body.email.lower().strip()
     ip = request.headers.get("x-forwarded-for", request.client.host if request.client else "").split(",")[0]
-    key = f"{email}|{ip}"
+    key = email
     att = await db.login_attempts.find_one({"_id": key}) or {}
     if att.get("locked_until") and att["locked_until"] > iso():
         raise HTTPException(429, "Too many failed attempts. Try again in 15 minutes.")
@@ -437,14 +437,18 @@ class ProspectPatch(BaseModel):
 @api.patch("/prospects/{bid}")
 async def patch_prospect(bid: str, body: ProspectPatch, user=Depends(require_admin)):
     upd = {k: v for k, v in body.model_dump().items() if v is not None}
-    await db.businesses.update_one({"id": bid}, {"$set": upd})
+    r = await db.businesses.update_one({"id": bid}, {"$set": upd})
+    if not r.matched_count:
+        raise HTTPException(404, "Not found")
     await audit("prospect_updated", "business", bid, upd, user["email"])
     return clean(await db.businesses.find_one({"id": bid}))
 
 
 @api.post("/prospects/{bid}/reassess")
 async def reassess(bid: str, user=Depends(require_admin)):
-    await db.businesses.update_one({"id": bid}, {"$set": {"research_status": "refresh_requested", "attempts": 0}})
+    r = await db.businesses.update_one({"id": bid}, {"$set": {"research_status": "refresh_requested", "attempts": 0}})
+    if not r.matched_count:
+        raise HTTPException(404, "Not found")
     await audit("reassess_requested", "business", bid, actor=user["email"])
     return {"ok": True}
 
@@ -466,6 +470,8 @@ async def exclude(bid: str, body: ExcludeIn, user=Depends(require_admin)):
                                     {"$set": {"status": "blocked", "blocked_reason": "business excluded"}})
     else:
         await db.suppressions.delete_one({"type": "business", "value": bid})
+        await db.drafts.update_many({"business_id": bid, "status": "blocked", "blocked_reason": "business excluded"},
+                                    {"$set": {"status": "pending_approval", "blocked_reason": None}})
     await audit("business_excluded" if body.exclude else "business_unexcluded", "business", bid, {"reason": body.reason}, user["email"])
     return {"ok": True}
 
@@ -748,6 +754,23 @@ async def archive_service(sid: str, user=Depends(require_admin)):
 
 
 # ---------- settings ----------
+def coerce(default, v, k):
+    try:
+        if isinstance(default, bool):
+            if not isinstance(v, bool):
+                raise ValueError
+            return v
+        if isinstance(default, int):
+            return int(v)
+        if isinstance(default, float):
+            return float(v)
+        if isinstance(default, dict):
+            return {kk: int(vv) for kk, vv in v.items() if kk in default}
+        return str(v)
+    except (ValueError, TypeError, AttributeError):
+        raise HTTPException(400, f"Invalid value for {k}")
+
+
 def mask(s):
     for sec, key in SECRET_FIELDS:
         v = s[sec].get(key, "")
@@ -772,12 +795,20 @@ async def write_settings(section: str, request: Request, user=Depends(require_ad
     if section not in ("sender", "sending", "compliance", "scoring", "research", "imap", "resend", "notifications", "backups", "overpass_endpoints"):
         raise HTTPException(400, "Unknown section")
     if section == "overpass_endpoints":
-        await db.settings.update_one({"_id": "app"}, {"$set": {"overpass_endpoints": body.get("value", [])}})
+        await db.settings.update_one({"_id": "app"}, {"$set": {"overpass_endpoints": [str(x) for x in body.get("value", []) if x]}})
     else:
+        defaults = DEFAULT_SETTINGS[section]
         upd = {}
         for k, v in body.items():
             if k.endswith("_set") or k.endswith("_hint"):
                 continue
+            if k.startswith("clear_") and (section, k[6:]) in SECRET_FIELDS:
+                if v:
+                    upd[f"{section}.{k[6:]}"] = ""
+                continue
+            if k not in defaults:
+                raise HTTPException(400, f"Unknown setting: {k}")
+            v = coerce(defaults[k], v, k)
             if (section, k) in SECRET_FIELDS:
                 if not v:
                     continue
@@ -833,7 +864,7 @@ async def integration_test(name: str, user=Depends(require_admin)):
             await imap_test(s["imap"])
             msg = "Mailbox login successful"
         elif name == "overpass":
-            data, ep = await overpass('[out:json][timeout:20];node["shop"="butcher"](around:500,-37.8136,144.9631);out 1;')
+            data, ep = await overpass('[out:json][timeout:10];node["shop"="butcher"](around:500,-37.8136,144.9631);out 1;', quick=True)
             msg = f"Overpass OK via {ep}"
         elif name == "nominatim":
             g = await geocode("Melbourne", "Victoria", "Australia")
@@ -962,6 +993,9 @@ async def unsubscribe_page(token: str):
     out = await db.outbound.find_one({"unsub_token": token}, {"_id": 0})
     if not out:
         return UNSUB_PAGE.format(body="<h2>Link not recognised</h2><p>This unsubscribe link is invalid.</p>")
+    if out.get("test_mode"):
+        await audit("test_unsubscribe_clicked", "outbound", out["id"], {"to": out["to"]}, "public")
+        return UNSUB_PAGE.format(body="<h2>Test unsubscribe received</h2><p>This was a test-mode email, so the real recipient was not suppressed. The unsubscribe link works.</p>")
     await mark_unsubscribed(out["to"], "unsubscribe_link")
     return UNSUB_PAGE.format(body=f"<h2>You're unsubscribed</h2><p>{out['to']} will not receive any further emails from Bright Coda.</p>")
 
@@ -969,7 +1003,7 @@ async def unsubscribe_page(token: str):
 @api.post("/unsubscribe/{token}")
 async def unsubscribe_one_click(token: str):
     out = await db.outbound.find_one({"unsub_token": token}, {"_id": 0})
-    if out:
+    if out and not out.get("test_mode"):
         await mark_unsubscribed(out["to"], "one_click")
     return {"ok": True}
 
