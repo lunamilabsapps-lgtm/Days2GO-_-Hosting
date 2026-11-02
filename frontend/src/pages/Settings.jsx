@@ -21,6 +21,8 @@ function Form({ section, data, fields, onSaved, note }) {
         {fields.map(([k, l, type, hint]) => (
           type === "bool" ? (
             <label key={k} className="flex items-center gap-2 text-sm"><Switch checked={!!v[k]} onCheckedChange={(x) => setV({ ...v, [k]: x })} data-testid={`setting-${section}-${k}`} />{l}</label>
+          ) : type === "textarea" ? (
+            <Field key={k} label={l} hint={hint}><textarea rows={7} className="w-full rounded-md border border-input bg-background p-2 text-sm" value={v[k] ?? ""} onChange={(e) => setV({ ...v, [k]: e.target.value })} data-testid={`setting-${section}-${k}`} /></Field>
           ) : type?.startsWith?.("select:") ? (
             <Field key={k} label={l} hint={hint}><select className="native w-full" value={v[k]} onChange={(e) => setV({ ...v, [k]: e.target.value })} data-testid={`setting-${section}-${k}`}>{type.slice(7).split(",").map((o) => <option key={o}>{o}</option>)}</select></Field>
           ) : (
@@ -145,7 +147,7 @@ export default function SettingsPage() {
         <TabsList className="flex-wrap">{["sending", "compliance", "research", "suppression", "reports", "backups", "audit"].map((t) => <TabsTrigger key={t} value={t} className="capitalize" data-testid={`settings-tab-${t}`}>{t}</TabsTrigger>)}</TabsList>
         <TabsContent value="sending" className="space-y-6">
           <Form section="sender" data={s.sender} onSaved={load} note="Shown in every email footer for Spam Act sender identification."
-            fields={[["name", "Sender name"], ["email", "Sender email (on verified domain)"], ["reply_to", "Reply-to email (your Hostinger mailbox)"], ["domain", "Verified sending domain"], ["business_name", "Business name"], ["abn", "ABN"], ["business_address", "Business address"], ["website", "Website"], ["signature_name", "Sign-off name"], ["location", "Where you're based"], ["experience", "Your experience (mentioned in emails)"], ["mobile", "Mobile (in emails & signature)"]]} />
+            fields={[["name", "Sender name"], ["email", "Sender email (on verified domain)"], ["reply_to", "Reply-to email (your Hostinger mailbox)"], ["domain", "Verified sending domain"], ["business_name", "Business name"], ["abn", "ABN"], ["business_address", "Business address"], ["website", "Website"], ["signature_name", "Your name"], ["signature_block", "Email signature (added to every email)", "textarea"], ["location", "Where you're based"], ["experience", "Your experience (mentioned in emails)"], ["mobile", "Mobile (in emails & signature)"]]} />
           <Form section="sending" data={s.sending} onSaved={load} note="Test mode redirects every send to the test recipient and adds [TEST] to the subject. Real prospects can never be emailed while it is on."
             fields={[["test_mode", "Test mode (no real prospect emails)", "bool"], ["test_recipient", "Test recipient"], ["daily_limit", "Daily sending limit", "number"], ["campaign_limit", "Campaign sending limit", "number"], ["interval_seconds", "Interval between emails (s)", "number"], ["hours_start", "Sending hours start (0-23)", "number"], ["hours_end", "Sending hours end (0-23)", "number"], ["timezone", "Time zone", "select:Australia/Melbourne,Australia/Sydney,Australia/Brisbane,Australia/Adelaide,Australia/Perth,Australia/Hobart,Australia/Darwin"], ["weekdays_only", "Weekdays only", "bool"]]} />
         </TabsContent>
