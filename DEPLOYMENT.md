@@ -1,5 +1,26 @@
 # Bright Coda Local Business Scout — Deployment & Operations Guide
 
+## Quick start (recommended)
+1. **DNS**: in your domain's DNS (Hostinger → Domains → DNS), add an **A record** `scout` → your VPS IP (gives `scout.brightcoda.com`). Wait until it resolves.
+2. **Get the code onto the VPS**: in Emergent use **Save to GitHub** (or Download code), then on the VPS:
+   ```bash
+   ssh root@YOUR_VPS_IP
+   apt update && apt -y install git
+   git clone https://github.com/<you>/<repo>.git /opt/scout && cd /opt/scout
+   sudo bash deploy/install.sh
+   ```
+   The installer installs Docker, opens ports 22/80/443, asks for your domain, admin password and AI key, generates all security keys, writes `.env` and starts everything with HTTPS.
+3. **Bring your existing data across** (prospects, coverage, drafts, campaigns, settings):
+   - In the current app: **Settings → Backups → Back up now**, then download the newest file.
+   - Copy it to the VPS: `scp backup-*.json.gz root@YOUR_VPS_IP:/opt/scout/migrate/`
+   - Restore: `cd /opt/scout && docker compose run --rm -v $PWD/migrate:/migrate worker python restore_backup.py /migrate/backup-XXXX.json.gz`
+   - Restart: `docker compose restart api worker`
+4. **Re-enter secrets** in the new app (Integrations): Resend API key, webhook secret, IMAP password. They are encrypted per server, so they don't carry over.
+5. **Update the Resend webhook URL** to `https://scout.brightcoda.com/api/webhooks/resend`.
+6. **Stop the old preview instance sending**: pause/stop campaigns and the agent in the old preview app so two servers don't send or research in parallel.
+
+---
+
 ## Architecture
 | Service | Purpose |
 |---|---|
