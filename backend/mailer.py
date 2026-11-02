@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 import httpx
 from core import db, uid, iso, log, get_settings, activity, audit, notify, is_suppressed, add_suppression
+from ai import call_ai, AIError
 
 
 def public_url():
@@ -47,13 +48,41 @@ def can_send_now(s):
     return True, ""
 
 
+def add_business_days(dt, n):
+    while n > 0:
+        dt += timedelta(days=1)
+        if dt.weekday() < 5:
+            n -= 1
+    return dt
+
+
+async def cancel_followups(q, reason):
+    r = await db.outbound.update_many({**q, "followup_status": {"$in": ["scheduled", "drafted"]}},
+                                      {"$set": {"followup_status": "cancelled", "followup_cancel_reason": reason}})
+    dq = {("recipient" if k == "to" else k): v for k, v in q.items()}
+    await db.drafts.update_many({**dq, "kind": "followup", "status": {"$in": ["pending_approval", "approved"]}},
+                                {"$set": {"status": "cancelled", "blocked_reason": reason}})
+    if r.modified_count:
+        await audit("followups_cancelled", "outbound", None, {"query": q, "reason": reason, "count": r.modified_count})
+
+
 async def send_draft(d, campaign, s):
     snd = s["sender"]
     test = s["sending"]["test_mode"]
+    kind = d.get("kind", "initial")
     b = await db.businesses.find_one({"id": d["business_id"]}, {"_id": 0})
     sup = await is_suppressed(d["recipient"], b)
     if sup or b.get("reply_status") == "replied" or b.get("excluded"):
         await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "blocked", "blocked_reason": "suppressed/replied/excluded"}})
+        return "blocked"
+    parent = None
+    if kind == "followup":
+        parent = await db.outbound.find_one({"id": d["parent_outbound_id"]}, {"_id": 0})
+        if not parent or parent.get("followup_status") not in ("drafted", "scheduled"):
+            await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "cancelled", "blocked_reason": "follow-up no longer due"}})
+            return "blocked"
+    elif await db.outbound.find_one({"to": d["recipient"].lower(), "kind": {"$ne": "followup"}, "test_mode": test}):
+        await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "blocked", "blocked_reason": "this address has already been emailed"}})
         return "blocked"
     token = secrets.token_urlsafe(24)
     domain = snd.get("domain") or (snd.get("email", "@x").split("@")[-1])
@@ -62,8 +91,13 @@ async def send_draft(d, campaign, s):
     to = s["sending"]["test_recipient"] if test else d["recipient"]
     subject = (f"[TEST → {d['recipient']}] " if test else "") + d["subject"]
     out = {"id": uid(), "draft_id": d["id"], "campaign_id": campaign["id"], "business_id": d["business_id"],
-           "business_name": d["business_name"], "to": d["recipient"], "actual_to": to, "subject": d["subject"],
-           "message_id": message_id, "unsub_token": token, "test_mode": test, "events": [], "created_at": iso()}
+           "business_name": d["business_name"], "to": d["recipient"].lower(), "actual_to": to, "subject": d["subject"],
+           "message_id": message_id, "unsub_token": token, "test_mode": test, "events": [], "created_at": iso(), "kind": kind}
+    if kind == "initial" and campaign.get("followups_enabled", True):
+        due = add_business_days(datetime.now(ZoneInfo(s["sending"]["timezone"])), 5).astimezone(timezone.utc)
+        out.update(followup_status="scheduled", followup_due_at=due.isoformat())
+    else:
+        out["followup_status"] = "none"
     key = s["resend"]["api_key"]
     if not key:
         if not test:
@@ -73,6 +107,8 @@ async def send_draft(d, campaign, s):
         payload = {"from": f"{snd['name']} <{snd['email']}>", "to": [to], "subject": subject, "text": text, "html": html,
                    "headers": {"Message-ID": message_id, "List-Unsubscribe": f"<{unsub}>",
                                "List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}}
+        if parent:
+            payload["headers"].update({"In-Reply-To": parent["message_id"], "References": parent["message_id"]})
         if snd.get("reply_to"):
             payload["reply_to"] = snd["reply_to"]
         async with httpx.AsyncClient(timeout=20) as c:
@@ -85,12 +121,14 @@ async def send_draft(d, campaign, s):
             return "failed"
         out.update(status="sent", resend_id=r.json().get("id"), sent_at=iso())
     await db.outbound.insert_one(dict(out))
+    if parent:
+        await db.outbound.update_one({"id": parent["id"]}, {"$set": {"followup_status": "sent", "followup_outbound_id": out["id"]}})
     await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "sent", "sent_at": iso(), "outbound_id": out["id"]}})
     await db.businesses.update_one({"id": d["business_id"]}, {"$set": {"email_status": "sent" if not test else "test_sent",
-                                                                     "follow_up_status": "none"}})
+                                                                     "follow_up_status": "sent" if parent else "scheduled" if out["followup_status"] == "scheduled" else "none"}})
     await db.campaigns.update_one({"id": campaign["id"]}, {"$inc": {"sent_count": 1}, "$set": {"last_sent_at": iso()}})
     await audit("email_sent", "outbound", out["id"], {"to": to, "test_mode": test, "status": out["status"]})
-    await activity("sent", f"{'TEST ' if test else ''}Email {'logged (dry run)' if out['status'] == 'test_dry_run' else 'sent'} to {d['business_name']}",
+    await activity("sent", f"{'TEST ' if test else ''}{'Follow-up' if parent else 'Email'} {'logged (dry run)' if out['status'] == 'test_dry_run' else 'sent'} to {d['business_name']}",
                    b, data={"to": to})
     return out["status"]
 
@@ -102,12 +140,27 @@ async def mark_unsubscribed(email_addr, source):
     await db.businesses.update_many({"id": {"$in": bids}}, {"$set": {"email_status": "unsubscribed", "follow_up_status": "cancelled"}})
     await db.drafts.update_many({"recipient": email_addr, "status": {"$in": ["pending_approval", "approved"]}},
                                 {"$set": {"status": "blocked", "blocked_reason": "unsubscribed"}})
+    await cancel_followups({"to": email_addr}, "unsubscribed")
     await notify("unsubscribe", f"Unsubscribe: {email_addr}", f"Source: {source}")
+
+
+async def classify_reply(text):
+    try:
+        r = await call_ai("reply_classify", "Classify a business's reply to a sales email. Answer with one word only: positive, neutral, negative.",
+                          (text or "")[:1500], max_tokens=10)
+        w = r.strip().lower()
+        return next((x for x in ("positive", "negative", "neutral") if x in w), "neutral")
+    except AIError:
+        return None
 
 
 async def handle_reply(out, msg_meta, kind):
     b = await db.businesses.find_one({"id": out["business_id"]}, {"_id": 0})
     if kind == "reply":
+        await cancel_followups({"business_id": b["id"]}, "business replied")
+        sentiment = await classify_reply(msg_meta.get("body", ""))
+        if msg_meta.get("inbound_id"):
+            await db.inbound.update_one({"id": msg_meta["inbound_id"]}, {"$set": {"sentiment": sentiment}})
         await db.businesses.update_one({"id": b["id"]}, {"$set": {"reply_status": "replied", "email_status": "replied",
                                                                  "follow_up_status": "cancelled", "replied_at": iso()}})
         await db.drafts.update_many({"business_id": b["id"], "status": {"$in": ["pending_approval", "approved"]}},
@@ -129,13 +182,18 @@ async def process_webhook_event(event):
     if not out:
         return
     status = {"email.delivered": "delivered", "email.bounced": "bounced", "email.complained": "complained",
-              "email.delivery_delayed": "delayed", "email.failed": "failed"}.get(t)
+              "email.delivery_delayed": "delayed", "email.failed": "failed", "email.opened": "opened", "email.clicked": "clicked"}.get(t)
     if not status:
         return
     upd = {"$push": {"events": {"type": status, "at": event.get("created_at") or iso()}}}
+    if status in ("opened", "clicked"):
+        await db.outbound.update_one({"id": out["id"]}, {**upd, "$set": {status: True}})
+        return
     if out.get("status") != "replied":
         upd["$set"] = {"status": status}
     await db.outbound.update_one({"id": out["id"]}, upd)
+    if status in ("bounced", "complained", "failed"):
+        await cancel_followups({"to": out["to"]}, status)
     if out.get("test_mode"):
         return
     if status == "delivered":
@@ -241,7 +299,8 @@ async def poll_imap():
             date = parsedate_to_datetime(msg.get("Date")).isoformat()
         except Exception:
             date = iso()
-        await db.inbound.insert_one({"id": uid(), "message_id": mid, "from": frm, "subject": subj, "received_at": date,
+        in_id = uid()
+        await db.inbound.insert_one({"id": in_id, "message_id": mid, "from": frm, "subject": subj, "received_at": date,
                                      "in_reply_to": msg.get("In-Reply-To"), "kind": kind, "matched_by": matched_by,
                                      "outbound_id": out["id"], "business_id": out["business_id"],
                                      "business_name": out["business_name"], "campaign_id": out["campaign_id"],
@@ -249,10 +308,11 @@ async def poll_imap():
         n += 1
         if kind == "bounce":
             await add_suppression(out["to"], "email", "bounced (mailbox)", "imap")
+            await cancel_followups({"to": out["to"]}, "bounced")
             await db.businesses.update_one({"id": out["business_id"]}, {"$set": {"email_status": "bounced"}})
             await notify("delivery_problem", f"Bounce: {out['business_name']}", out["to"], "high")
             continue
-        await handle_reply(out, {"subject": subj}, kind)
+        await handle_reply(out, {"subject": subj, "body": body, "inbound_id": in_id}, kind)
         if kind == "reply" and UNSUB_RE.search(body[:500] + subj):
             await mark_unsubscribed(out["to"], "reply_request")
     return n

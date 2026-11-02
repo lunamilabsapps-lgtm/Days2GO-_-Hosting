@@ -19,7 +19,7 @@ from core import (db, uid, iso, log, clean, get_settings, ensure_settings, creat
 from discovery import resolve_region, filter_zones, CATEGORY_TAGS, overpass, geocode
 from ai import call_ai, parse_json, ai_configured, AIError
 from assess import generate_draft, services_catalogue, check_eligibility
-from mailer import mark_unsubscribed, process_webhook_event, imap_test, public_url
+from mailer import mark_unsubscribed, process_webhook_event, imap_test, public_url, cancel_followups
 from worker import start_worker, run_backup
 
 app = FastAPI(title="Bright Coda Local Business Scout")
@@ -91,6 +91,41 @@ async def seed_admin():
                                    "password_hash": bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode(), "created_at": iso()})
     elif not bcrypt.checkpw(pw.encode(), u["password_hash"].encode()):
         await db.users.update_one({"email": email}, {"$set": {"password_hash": bcrypt.hashpw(pw.encode(), bcrypt.gensalt()).decode()}})
+
+
+CATALOGUE_V2 = [
+    {"name": "Starter Website", "pricing": "$249 one-off build", "hosting": "$29/month",
+     "description": "A professional, mobile-friendly website for a small business with no website or an outdated one.",
+     "features": ["Up to 5 website pages", "Custom graphic design", "Existing logo refresh or update", "Contact form",
+                  "Relevant business information", "Services and contact details", "Mobile-friendly design"],
+     "delivery_scope": "Up to 5 pages", "terms": ""},
+    {"name": "Business Website", "pricing": "$599 one-off build", "hosting": "$29/month",
+     "description": "A larger website for businesses that need bookings, galleries and more detailed service pages. Includes everything in Starter.",
+     "features": ["Everything in Starter", "Up to 10 website pages", "Additional website sections and pages", "Photo galleries and image sections",
+                  "Online booking functionality", "Advanced enquiry forms", "Google Maps integration", "More comprehensive business information and service pages"],
+     "delivery_scope": "Up to 10 pages. Larger websites must be quoted separately.", "terms": "Larger websites must be quoted separately."},
+    {"name": "AI Business Website", "pricing": "From $1,299 one-off build (final price depends on the complexity of the AI implementation)", "hosting": "$49/month",
+     "description": "A business website with an AI chatbot that answers common customer questions and collects enquiries.",
+     "features": ["AI chatbot answering common business questions", "Customer enquiry collection", "Business-specific information, services and FAQs",
+                  "Enquiry notifications to the business", "Website functionality and design appropriate to the business"],
+     "delivery_scope": "Final pricing depends on the complexity of the AI implementation.", "terms": ""},
+    {"name": "Ecommerce Website", "pricing": "From $1,999 one-off build (final price depends on the number of products and complexity of the store)",
+     "hosting": "Monthly fee quoted according to store size",
+     "description": "An online store for retail businesses that want to sell online.",
+     "features": ["Online store", "Product listings", "Shopping cart", "Secure checkout", "Payment gateway integration", "Shipping configuration",
+                  "Order management", "Mobile-friendly design"],
+     "delivery_scope": "Final pricing depends on the number of products and complexity of the store.", "terms": ""},
+]
+
+
+async def ensure_catalogue_v2():
+    if await db.services.find_one({"catalogue_version": 2}):
+        return
+    await db.services.update_many({"archived": {"$ne": True}}, {"$set": {"archived": True, "active": False, "approved": False, "archived_reason": "replaced by approved catalogue v2"}})
+    for svc in CATALOGUE_V2:
+        await db.services.insert_one({"id": uid(), **svc, "optional_extras": "", "maintenance": "", "approved": True, "active": True,
+                                      "catalogue_version": 2, "created_at": iso()})
+    await audit("service_catalogue_v2_installed", "service", None, {"count": len(CATALOGUE_V2)})
 
 
 SEED_SERVICES = [
@@ -515,6 +550,33 @@ async def regen_email(bid: str, user=Depends(require_admin)):
     return d
 
 
+@api.get("/prospects/{bid}/visabal-brief")
+async def visabal_brief(bid: str, user=Depends(require_admin)):
+    b = await db.businesses.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Not found")
+    a = await db.assessments.find_one({"business_id": bid}, {"_id": 0}, sort=[("assessed_at", -1)])
+    if not a:
+        raise HTTPException(400, "Business has not been assessed yet")
+    f = a.get("features") or {}
+    lines = [f"Business name: {b['name']}", f"Website: {b.get('website') or 'No website found'}", f"Category: {b['category']}",
+             f"Location: {', '.join(x for x in [b.get('address'), b.get('suburb'), b.get('city'), b.get('state')] if x)}",
+             f"Website presence: {a['presence'].replace('_', ' ')} (assessed {a['assessed_at'][:10]})", "", "Website observations:"]
+    lines += [f"- {i['issue']} (evidence: {i['evidence']})" for i in a.get("verified_issues", [])] or ["- None verified"]
+    missing = [n for n, ok in [("enquiry/contact form", f.get("has_contact_form") or f.get("contact_page_has_form")), ("online booking", f.get("booking_signals")),
+                               ("online ordering", f.get("ordering_signals")), ("mobile viewport", f.get("has_viewport_meta")), ("HTTPS", f.get("uses_https"))] if f and not ok]
+    lines += ["", "Missing or outdated functionality:"] + ([f"- {m}" for m in missing] or ["- Not determined" if not f else "- None detected"])
+    if f.get("copyright_year"):
+        lines.append(f"- Footer copyright year: {f['copyright_year']}")
+    lines += ["", "Potential improvements:"] + ([f"- {p['improvement']}" for p in a.get("potential_improvements", [])] or ["- None noted"])
+    opp = sorted(a.get("opportunities", []), key=lambda o: -(o.get("strength") or 0))
+    lines += ["", f"Recommended Bright Coda package: {opp[0]['service_name'] if opp else 'To be decided'}" + (f" - {opp[0]['reason']}" if opp else "")]
+    lines += ["", "Supporting research:", f"- Summary: {a.get('summary') or '-'}", f"- Lead score: {a.get('score')} (grade {a.get('grade')})",
+              f"- Load time: {a.get('load_ms')} ms" if a.get("load_ms") else "- Load time: n/a", f"- Site builder: {f.get('builder') or 'unknown'}",
+              f"- Discovery source: {b.get('source_url')}"]
+    return {"text": "\n".join(lines)}
+
+
 # ---------- assessments ----------
 @api.get("/assessments")
 async def list_assessments(presence: str = "", grade: str = "", changed: bool = False, limit: int = 100, user=Depends(require_admin)):
@@ -621,16 +683,60 @@ async def draft_action(did: str, action: str, user=Depends(require_admin)):
 
 class CampaignIn(BaseModel):
     name: str
-    draft_ids: List[str]
+    draft_ids: List[str] = []
     limit: int = 0
+    daily_limit: int = 20
+    search_ids: List[str] = []
+    followups_enabled: bool = True
+
+
+class CampaignPatch(BaseModel):
+    name: Optional[str] = None
+    daily_limit: Optional[int] = None
+    search_ids: Optional[List[str]] = None
+    followups_enabled: Optional[bool] = None
+
+
+class ModeIn(BaseModel):
+    mode: str
+    confirm: bool = False
+
+
+@api.patch("/campaigns/{cid}")
+async def patch_campaign(cid: str, body: CampaignPatch, user=Depends(require_admin)):
+    upd = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "daily_limit" in upd and not (1 <= upd["daily_limit"] <= 500):
+        raise HTTPException(400, "Daily limit must be between 1 and 500")
+    r = await db.campaigns.update_one({"id": cid}, {"$set": upd})
+    if not r.matched_count:
+        raise HTTPException(404, "Not found")
+    if upd.get("followups_enabled") is False:
+        await cancel_followups({"campaign_id": cid}, "follow-ups disabled")
+    await audit("campaign_updated", "campaign", cid, upd, user["email"])
+    return clean(await db.campaigns.find_one({"id": cid}))
+
+
+@api.post("/campaigns/{cid}/mode")
+async def campaign_mode(cid: str, body: ModeIn, user=Depends(require_admin)):
+    if body.mode not in ("review", "autonomous"):
+        raise HTTPException(400, "Mode must be review or autonomous")
+    if body.mode == "autonomous" and not body.confirm:
+        raise HTTPException(400, "Switching to Full Autonomy requires explicit confirmation")
+    r = await db.campaigns.update_one({"id": cid}, {"$set": {"mode": body.mode, "mode_changed_at": iso(), "mode_changed_by": user["email"]}})
+    if not r.matched_count:
+        raise HTTPException(404, "Not found")
+    await audit("campaign_mode_changed", "campaign", cid, {"mode": body.mode}, user["email"])
+    await activity("control", f"Campaign switched to {'FULL AUTONOMY' if body.mode == 'autonomous' else 'REVIEW MODE'}", level="warn")
+    return clean(await db.campaigns.find_one({"id": cid}))
 
 
 @api.post("/campaigns")
 async def create_campaign(body: CampaignIn, user=Depends(require_admin)):
     c = {"id": uid(), "name": body.name, "status": "draft", "limit": body.limit, "sent_count": 0, "created_at": iso(),
-         "created_by": user["email"]}
+         "created_by": user["email"], "mode": "review", "daily_limit": body.daily_limit, "search_ids": body.search_ids,
+         "followups_enabled": body.followups_enabled}
     await db.campaigns.insert_one(dict(c))
-    r = await db.drafts.update_many({"id": {"$in": body.draft_ids}, "status": {"$in": ["pending_approval", "approved"]}, "campaign_id": None},
+    r = await db.drafts.update_many({"id": {"$in": body.draft_ids}, "status": {"$in": ["pending_approval", "approved"]}, "campaign_id": None, "kind": {"$ne": "followup"}},
                                     {"$set": {"campaign_id": c["id"]}})
     await audit("campaign_created", "campaign", c["id"], {"drafts": r.modified_count}, user["email"])
     return {**c, "added": r.modified_count}
@@ -646,6 +752,14 @@ async def list_campaigns(user=Depends(require_admin)):
         c["delivered"] = len([o for o in outs if any(e["type"] == "delivered" for e in o.get("events", []))])
         c["replies"] = await db.inbound.count_documents({"campaign_id": c["id"], "kind": "reply"})
         c["bounces"] = len([o for o in outs if o["status"] == "bounced"])
+        c["opens"] = len([o for o in outs if any(e["type"] == "opened" for e in o.get("events", []))])
+        c["positive"] = await db.inbound.count_documents({"campaign_id": c["id"], "kind": "reply", "sentiment": "positive"})
+        c["unsubscribes"] = await db.suppressions.count_documents({"reason": "unsubscribed", "value": {"$in": [o.get("to") for o in await db.outbound.find({"campaign_id": c["id"]}, {"to": 1}).to_list(10000)]}})
+        c["followups_scheduled"] = await db.outbound.count_documents({"campaign_id": c["id"], "followup_status": {"$in": ["scheduled", "drafted"]}})
+        c["followups_sent"] = await db.outbound.count_documents({"campaign_id": c["id"], "kind": "followup"})
+        c["next_followup_at"] = (await db.outbound.find_one({"campaign_id": c["id"], "followup_status": "scheduled"}, {"_id": 0, "followup_due_at": 1}, sort=[("followup_due_at", 1)]) or {}).get("followup_due_at")
+        day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+        c["sent_today"] = await db.outbound.count_documents({"campaign_id": c["id"], "created_at": {"$gte": day}})
     return docs
 
 
@@ -685,6 +799,8 @@ async def campaign_action(cid: str, action: str, user=Depends(require_admin)):
         if missing:
             raise HTTPException(400, "Setup required before live sending: " + ", ".join(missing))
     await db.campaigns.update_one({"id": cid}, {"$set": {"status": m[action], f"{action}_at": iso()}})
+    if action in ("pause", "stop"):
+        await cancel_followups({"campaign_id": cid}, f"campaign {m[action]}")
     await audit(f"campaign_{action}", "campaign", cid, {"test_mode": s["sending"]["test_mode"]}, user["email"])
     return clean(await db.campaigns.find_one({"id": cid}))
 
@@ -924,6 +1040,7 @@ async def add_supp(body: SuppressIn, user=Depends(require_admin)):
     if body.type not in ("email", "domain"):
         raise HTTPException(400, "Type must be email or domain")
     await add_suppression(body.value, body.type, body.reason, user["email"])
+    await cancel_followups({"to": body.value.lower()} if body.type == "email" else {"to": {"$regex": f"@{re.escape(body.value.lower())}$"}}, "suppressed")
     if body.type == "email":
         await db.drafts.update_many({"recipient": body.value.lower(), "status": {"$in": ["pending_approval", "approved"]}},
                                     {"$set": {"status": "blocked", "blocked_reason": "suppressed"}})
@@ -1064,5 +1181,6 @@ async def startup():
     await create_indexes()
     await seed_admin()
     await seed_services()
+    await ensure_catalogue_v2()
     if os.environ.get("RUN_WORKER", "true").lower() == "true":
         app.state.tasks = await start_worker()

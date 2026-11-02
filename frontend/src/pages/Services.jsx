@@ -38,10 +38,10 @@ function ServiceCard({ svc, onDone }) {
       <div className="grid gap-3 md:grid-cols-2">
         <Field label="Description"><Textarea rows={3} value={s.description} onChange={(e) => set("description", e.target.value)} data-testid={`service-description-${tid}`} /></Field>
         <Field label="Features (one per line)"><Textarea rows={3} value={s.featuresText} onChange={(e) => set("featuresText", e.target.value)} data-testid={`service-features-${tid}`} /></Field>
-        <Field label="Pricing" hint="Leave blank and the AI will not mention prices"><Input value={s.pricing} onChange={(e) => set("pricing", e.target.value)} data-testid={`service-pricing-${tid}`} /></Field>
+        <Field label="Pricing (one-off build)" hint="Leave blank and the AI will not mention prices"><Input value={s.pricing} onChange={(e) => set("pricing", e.target.value)} data-testid={`service-pricing-${tid}`} /></Field>
         <Field label="Delivery scope"><Input value={s.delivery_scope} onChange={(e) => set("delivery_scope", e.target.value)} data-testid={`service-scope-${tid}`} /></Field>
         <Field label="Optional extras"><Input value={s.optional_extras} onChange={(e) => set("optional_extras", e.target.value)} /></Field>
-        <Field label="Ongoing hosting"><Input value={s.hosting} onChange={(e) => set("hosting", e.target.value)} /></Field>
+        <Field label="Monthly fee"><Input value={s.hosting} onChange={(e) => set("hosting", e.target.value)} /></Field>
         <Field label="Maintenance packages"><Input value={s.maintenance} onChange={(e) => set("maintenance", e.target.value)} /></Field>
         <Field label="Terms and conditions"><Input value={s.terms} onChange={(e) => set("terms", e.target.value)} /></Field>
       </div>

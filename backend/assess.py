@@ -158,7 +158,10 @@ ASSESS_SYSTEM = """You are a careful website auditor for Bright Coda, an Austral
 You assess small local business websites using ONLY the evidence provided (extracted page data). Never invent problems.
 A 'verified_issue' must cite concrete evidence from the data. Anything uncertain goes in 'potential_improvements'.
 Match opportunities only to the provided approved service catalogue (use service ids). Do not pitch expensive custom
-software to a small business that only needs a website. Respond with JSON only."""
+software to a small business that only needs a website. Package logic: no website or outdated/inadequate website ->
+Starter Website (simple needs) or Business Website (needs booking, galleries, more pages); decent website but no
+enquiry automation and many repetitive questions -> AI Business Website; retailer that should sell online -> Ecommerce
+Website. Prefer the simplest package that solves the real problem. Respond with JSON only."""
 
 
 def assess_prompt(b, f, cat, extra):
@@ -293,7 +296,7 @@ async def assess_business(b, search, slot):
         a = parse_json(await call_ai("assessment", ASSESS_SYSTEM, assess_prompt(b, f, cat, extra), b["id"], 6000))
     else:
         a = no_site_assessment(b, pres, pres_note)
-        ws = next((x for x in cat if "new" in x["name"].lower() and "website" in x["name"].lower()), None)
+        ws = next((x for x in cat if x["name"].lower().startswith("starter")), None) or next((x for x in cat if "new" in x["name"].lower() and "website" in x["name"].lower()), None)
         if ws:
             a["opportunities"][0].update({"service_id": ws["id"], "service_name": ws["name"]})
     a.update({"id": uid(), "business_id": b["id"], "url": b.get("website") or None,
@@ -353,7 +356,9 @@ Rules:
   {experience}. Keep it casual, not a CV.
 - Mention ONE specific, verified thing noticed on their website (or that no website was found), and in one sentence why
   it might cost them customers. Never invent facts.
-- Suggest ONE matching approved service in plain words (no product names in capitals, no jargon, no prices unless given).
+- Suggest ONE matching approved service in plain words (no jargon). If you mention price, use only the catalogue figures
+  and state the one-off build price separately from the monthly fee (e.g. "$249 to build, then $29 a month").
+  Never invent discounts, inclusions or guarantees.
 - End with a relaxed, no-pressure ask, and say they're welcome to call or text on {mobile}.
 - Banned: exclamation marks, "leverage", "solutions", "elevate", "take your business to the next level", "digital
   presence", "I came across", bullet points, emojis.
@@ -372,7 +377,7 @@ Website: {b.get('website') or 'none found'} | Presence: {a['presence']}
 Assessment summary: {a.get('summary')}
 Verified issues: {json.dumps(a.get('verified_issues', []))}
 Opportunities: {json.dumps(a.get('opportunities', []))}
-Approved services: {json.dumps([{k: x.get(k) for k in ('id','name','description','features','pricing','delivery_scope')} for x in cat])}
+Approved services: {json.dumps([{k: x.get(k) for k in ('id','name','description','features','pricing','hosting','delivery_scope')} for x in cat])}
 Sender: {s['sender'].get('signature_name') or s['sender']['name']} of {s['sender'].get('business_name')} ({s['sender'].get('business_description', '')}), based in {s['sender'].get('location')}, mobile {s['sender'].get('mobile')}"""
     snd = s["sender"]
     system = EMAIL_SYSTEM.replace("{location}", snd.get("location") or "Melbourne").replace(
@@ -419,6 +424,31 @@ async def check_eligibility(b, contact, a, s):
              "$setOnInsert": {"id": uid()}}, upsert=True, return_document=True, projection={"_id": 0, "id": 1})
         consent_id = r["id"]
     return not reasons, reasons, consent_id
+
+
+FOLLOWUP_SYSTEM = """You write ONE short, polite follow-up to a cold email a local business owner hasn't answered.
+It must sound like the same real person, casual Australian English. 35-60 words. Refer back to the earlier email in one
+line, don't repeat it, no pressure, no sales language, no exclamation marks, no GST. Invite them to reply if it's of
+interest. No sign-off or name (added automatically). Respond as JSON: {"body": ""}"""
+
+
+async def generate_followup(o, b, s, c):
+    orig = await db.drafts.find_one({"id": o["draft_id"]}, {"_id": 0}) or {}
+    out = parse_json(await call_ai("followup", FOLLOWUP_SYSTEM,
+                                   f"Business: {b['name']}\nOriginal subject: {o['subject']}\nOriginal email:\n{orig.get('body', '')}", b["id"], 500))
+    body = SIGNOFF_RE.sub("", out.get("body", "").strip()).strip()
+    auto = c.get("mode") == "autonomous"
+    d = {"id": uid(), "kind": "followup", "parent_outbound_id": o["id"], "business_id": b["id"], "business_name": b["name"],
+         "assessment_id": orig.get("assessment_id"), "contact_id": orig.get("contact_id"),
+         "subject": o["subject"] if o["subject"].lower().startswith("re:") else f"Re: {o['subject']}", "body": body,
+         "recipient": o["to"], "word_count": len(body.split()), "eligible": True, "ineligible_reasons": [],
+         "status": "approved" if auto else "pending_approval", "campaign_id": c["id"], "created_at": iso(),
+         "approved_at": iso() if auto else None, "approved_by": "full_autonomy" if auto else None, "edited": False, "history": []}
+    await db.drafts.insert_one(dict(d))
+    await db.outbound.update_one({"id": o["id"]}, {"$set": {"followup_status": "drafted", "followup_draft_id": d["id"]}})
+    await audit("followup_drafted", "draft", d["id"], {"business_id": b["id"], "auto_approved": auto})
+    return d
+
 
 
 def needs_reassessment(b, days):

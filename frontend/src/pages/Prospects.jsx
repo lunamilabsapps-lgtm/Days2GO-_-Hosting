@@ -85,7 +85,7 @@ export default function Prospects() {
             <thead><tr className="border-b text-left"><th className="w-8 p-3"></th>{["Business", "Suburb", "Website", "Score", "Research", "Email", "Discovered"].map((h) => <th key={h} className="eyebrow p-3 font-normal">{h}</th>)}</tr></thead>
             <tbody>
               {data.items.map((p) => (
-                <tr key={p.id} className="cursor-pointer border-b last:border-0 hover:bg-accent/40" onClick={() => nav(`/prospects/${p.id}`)} data-testid={`prospect-row-${p.id}`}>
+                <tr key={p.id} className={`cursor-pointer border-b last:border-0 ${p.reply_status === "replied" ? "bg-emerald-500/15 hover:bg-emerald-500/25" : "hover:bg-accent/40"}`} onClick={() => nav(`/prospects/${p.id}`)} data-testid={`prospect-row-${p.id}`}>
                   <td className="p-3" onClick={(e) => e.stopPropagation()}><input type="checkbox" checked={sel.includes(p.id)} onChange={() => toggle(p.id)} data-testid={`prospect-select-${p.id}`} /></td>
                   <td className="p-3"><div className="flex items-center gap-2 font-medium">{p.name}{p.reply_status === "replied" && <RepliedTag testid={`prospect-replied-${p.id}`} />}</div><div className="text-xs capitalize text-muted-foreground">{p.category}{p.parent_group ? " · multi-location" : ""}{p.excluded ? " · excluded" : ""}</div></td>
                   <td className="p-3 text-muted-foreground">{p.suburb}</td>

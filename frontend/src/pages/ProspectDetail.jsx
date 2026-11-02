@@ -42,11 +42,19 @@ function DraftEditor({ d, onSaved }) {
   );
 }
 
+function VisabalBrief({ id, brief, setBrief }) {
+  const [err, setErr] = useState("");
+  useEffect(() => { api.get(`/prospects/${id}/visabal-brief`).then((r) => setBrief(r.data.text)).catch((e) => setErr(errMsg(e))); }, [id]); // eslint-disable-line
+  if (err) return <p className="text-sm text-muted-foreground">{err}</p>;
+  return <pre data-testid="visabal-brief-text" className="whitespace-pre-wrap rounded-md bg-muted/60 p-4 font-mono text-xs leading-relaxed">{brief || "Loading…"}</pre>;
+}
+
 export default function ProspectDetail() {
   const { id } = useParams();
   const [d, setD] = useState(null);
   const [notes, setNotes] = useState("");
   const [busy, setBusy] = useState(false);
+  const [brief, setBrief] = useState("");
   const load = () => api.get(`/prospects/${id}`).then((r) => { setD(r.data); setNotes(r.data.business.notes || ""); });
   useEffect(() => { load(); }, [id]); // eslint-disable-line
 
@@ -98,8 +106,11 @@ export default function ProspectDetail() {
       </div>
       <Tabs defaultValue="assessment">
         <TabsList className="flex-wrap">
-          {["assessment", "email", "contacts", "outreach", "history"].map((t) => <TabsTrigger key={t} value={t} data-testid={`detail-tab-${t}`} className="capitalize">{t === "assessment" ? "Opportunity report" : t}</TabsTrigger>)}
+          {["assessment", "visabal", "email", "contacts", "outreach", "history"].map((t) => <TabsTrigger key={t} value={t} data-testid={`detail-tab-${t}`} className="capitalize">{t === "assessment" ? "Opportunity report" : t === "visabal" ? "Visabal brief" : t}</TabsTrigger>)}
         </TabsList>
+        <TabsContent value="visabal"><Section title="Research brief for Visabal" right={<Button size="sm" variant="outline" data-testid="visabal-copy-button" onClick={async () => { try { const r = await api.get(`/prospects/${id}/visabal-brief`); await navigator.clipboard.writeText(r.data.text); setBrief(r.data.text); toast.success("Brief copied — paste it into Visabal"); } catch (e) { toast.error(errMsg(e)); } }}>Copy brief</Button>}>
+          <VisabalBrief id={id} brief={brief} setBrief={setBrief} />
+        </Section></TabsContent>
         <TabsContent value="assessment"><Section><AssessmentReport a={d.assessments[0]} /></Section></TabsContent>
         <TabsContent value="email">
           <Section title="Personalised email" right={<Button size="sm" variant="outline" onClick={genEmail} disabled={busy} data-testid="detail-generate-email">{busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PenLine className="mr-1 h-4 w-4" />}{draft ? "Regenerate" : "Generate email"}</Button>}>

@@ -7,7 +7,8 @@ from core import (db, iso, log, get_settings, activity, audit, notify, set_curre
                   create_indexes)
 from discovery import search_zone, osm_to_candidate, ingest_candidate
 from assess import assess_business
-from mailer import send_draft, can_send_now, poll_imap
+from mailer import send_draft, can_send_now, poll_imap, cancel_followups
+from core import is_suppressed
 
 WORKER_ID = os.environ.get("HOSTNAME", "worker")
 
@@ -160,14 +161,66 @@ async def research_loop(slot):
             await asyncio.sleep(10)
 
 
+async def recheck_and_approve(d, c, s, actor):
+    from assess import check_eligibility
+    b = await db.businesses.find_one({"id": d["business_id"]}, {"_id": 0})
+    ct = await db.contacts.find_one({"id": d.get("contact_id")}, {"_id": 0})
+    a = await db.assessments.find_one({"id": d.get("assessment_id")}, {"_id": 0})
+    if not (b and ct and a):
+        return False
+    ok, reasons, _ = await check_eligibility(b, ct, a, s)
+    if ok:
+        await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "approved", "campaign_id": c["id"], "approved_at": iso(), "approved_by": actor}})
+        await db.businesses.update_one({"id": d["business_id"]}, {"$set": {"email_status": "approved"}})
+        await audit("draft_approve", "draft", d["id"], {"campaign_id": c["id"], "mode": "full_autonomy"}, actor)
+    else:
+        await db.drafts.update_one({"id": d["id"]}, {"$set": {"status": "ineligible", "eligible": False, "ineligible_reasons": reasons}})
+    return ok
+
+
+async def autonomy_enroll(c, s):
+    q = {"status": "pending_approval", "eligible": True, "kind": {"$ne": "followup"}, "$or": [{"campaign_id": None}, {"campaign_id": c["id"]}]}
+    if c.get("search_ids"):
+        q["business_id"] = {"$in": await db.businesses.distinct("id", {"search_ids": {"$in": c["search_ids"]}})}
+    for d in await db.drafts.find(q, {"_id": 0}).sort("created_at", 1).limit(10).to_list(10):
+        await recheck_and_approve(d, c, s, "full_autonomy")
+
+
+async def followup_step(c, s):
+    from assess import generate_followup
+    due = await db.outbound.find({"campaign_id": c["id"], "followup_status": "scheduled", "followup_due_at": {"$lte": iso()},
+                                  "test_mode": s["sending"]["test_mode"]}, {"_id": 0}).limit(5).to_list(5)
+    for o in due:
+        b = await db.businesses.find_one({"id": o["business_id"]}, {"_id": 0})
+        if b.get("reply_status") == "replied" or o.get("status") in ("bounced", "complained", "failed", "replied") or await is_suppressed(o["to"], b):
+            await db.outbound.update_one({"id": o["id"]}, {"$set": {"followup_status": "cancelled", "followup_cancel_reason": "not eligible at due time"}})
+            continue
+        try:
+            await generate_followup(o, b, s, c)
+            await activity("email", f"Follow-up prepared for {b['name']}" + (" (sending automatically)" if c.get("mode") == "autonomous" else " (awaiting approval)"), b)
+        except Exception as e:
+            log.warning("followup generation failed: %s", e)
+
+
+async def bounce_guard(c):
+    since = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat()
+    recent_bad = await db.outbound.count_documents({"campaign_id": c["id"], "test_mode": False, "status": {"$in": ["bounced", "complained", "failed"]}, "created_at": {"$gte": since}})
+    total = await db.outbound.count_documents({"campaign_id": c["id"], "test_mode": False})
+    bad = await db.outbound.count_documents({"campaign_id": c["id"], "test_mode": False, "status": {"$in": ["bounced", "complained", "failed"]}})
+    if recent_bad >= 3 or (total >= 10 and bad / total > 0.08):
+        reason = f"auto-paused: {bad} bounce/complaint/failure out of {total} sent"
+        await db.campaigns.update_one({"id": c["id"]}, {"$set": {"status": "paused", "waiting_reason": reason}})
+        await cancel_followups({"campaign_id": c["id"]}, "campaign auto-paused")
+        await notify("delivery_problem", f"Campaign paused: {c['name']}", reason, "high", link="/campaigns")
+        await audit("campaign_auto_paused", "campaign", c["id"], {"reason": reason})
+        return True
+    return False
+
+
 async def sender_step():
     s = await get_settings()
     camps = await db.campaigns.find({"status": "running"}, {"_id": 0}).to_list(20)
     if not camps:
-        return
-    ok, why = can_send_now(s)
-    if not ok:
-        await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": why}})
         return
     test = s["sending"]["test_mode"]
     if not test:
@@ -176,11 +229,21 @@ async def sender_step():
         if missing:
             await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": "setup required: " + ", ".join(missing)}})
             return
+    for c in camps:
+        if not test and await bounce_guard(c):
+            continue
+        if c.get("mode") == "autonomous":
+            await autonomy_enroll(c, s)
+        await followup_step(c, s)
+    ok, why = can_send_now(s)
+    if not ok:
+        await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": why}})
+        return
     from zoneinfo import ZoneInfo
     day = datetime.now(ZoneInfo(s["sending"]["timezone"])).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
     sent_today = await db.outbound.count_documents({"created_at": {"$gte": day}, "test_mode": test})
     if sent_today >= s["sending"]["daily_limit"]:
-        await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": "daily sending limit reached"}})
+        await db.campaigns.update_many({"status": "running"}, {"$set": {"waiting_reason": "account daily sending limit reached"}})
         return
     last = await db.outbound.find_one({}, {"_id": 0, "created_at": 1}, sort=[("created_at", -1)])
     if last and datetime.fromisoformat(last["created_at"]) > datetime.now(timezone.utc) - timedelta(seconds=s["sending"]["interval_seconds"]):
@@ -189,10 +252,19 @@ async def sender_step():
         if c.get("sent_count", 0) >= min(c.get("limit") or 10**9, s["sending"]["campaign_limit"]):
             await db.campaigns.update_one({"id": c["id"]}, {"$set": {"status": "completed", "completed_at": iso()}})
             continue
-        d = await db.drafts.find_one({"campaign_id": c["id"], "status": "approved"}, {"_id": 0}, sort=[("approved_at", 1)])
+        camp_today = await db.outbound.count_documents({"campaign_id": c["id"], "created_at": {"$gte": day}, "test_mode": test})
+        if camp_today >= int(c.get("daily_limit") or 20):
+            await db.campaigns.update_one({"id": c["id"]}, {"$set": {"waiting_reason": f"campaign daily limit reached ({camp_today}/{c.get('daily_limit') or 20})"}})
+            continue
+        d = await db.drafts.find_one({"campaign_id": c["id"], "status": "approved"}, {"_id": 0}, sort=[("kind", -1), ("approved_at", 1)])
         if not d:
-            await db.campaigns.update_one({"id": c["id"]}, {"$set": {"status": "completed", "completed_at": iso()}})
-            await notify("campaign_completed", f"Campaign completed: {c['name']}", f"{c.get('sent_count', 0)} emails sent", link="/campaigns")
+            pending = await db.drafts.count_documents({"campaign_id": c["id"], "status": "pending_approval"})
+            fu = await db.outbound.count_documents({"campaign_id": c["id"], "followup_status": {"$in": ["scheduled", "drafted"]}})
+            if c.get("mode") != "autonomous" and not pending and not fu:
+                await db.campaigns.update_one({"id": c["id"]}, {"$set": {"status": "completed", "completed_at": iso()}})
+                await notify("campaign_completed", f"Campaign completed: {c['name']}", f"{c.get('sent_count', 0)} emails sent", link="/campaigns")
+            else:
+                await db.campaigns.update_one({"id": c["id"]}, {"$set": {"waiting_reason": "waiting for approved emails or follow-ups" if c.get("mode") != "autonomous" else "waiting for new eligible prospects"}})
             continue
         await db.campaigns.update_one({"id": c["id"]}, {"$set": {"waiting_reason": None}})
         await send_draft(d, c, s)
