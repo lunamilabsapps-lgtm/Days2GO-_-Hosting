@@ -100,7 +100,7 @@ DEFAULT_SETTINGS = {
                 "timezone": "Australia/Melbourne", "weekdays_only": True, "test_mode": True,
                 "test_recipient": "delivered@resend.dev"},
     "compliance": {"configured": False, "offer_reviewed": False, "default_basis": "inferred_conspicuous_publication",
-                   "allow_personal_addresses": False},
+                   "allow_personal_addresses": True},
     "scoring": {"weights": {"business_fit": 15, "website_gap": 20, "opportunity": 20, "relevance": 15,
                             "commercial_value": 10, "contact": 10, "confidence": 10},
                 "min_grade_for_email": "C"},

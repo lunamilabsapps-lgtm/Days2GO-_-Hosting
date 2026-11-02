@@ -116,11 +116,15 @@ async def screenshot(url, bid):
 
 def is_personal(email, business):
     local, _, dom = email.partition("@")
+    biz = business.get("domain") or norm_domain(business.get("website", ""))
+    if biz and dom.endswith(biz):
+        return False
     if local in ROLE_PREFIX or any(local.startswith(r) for r in ROLE_PREFIX):
         return False
-    if dom in FREE_MAIL:
-        return True
-    return bool(re.match(r"^[a-z]+(\.[a-z]+)?$", local)) and local not in norm_domain(business.get("website", ""))
+    words = [w for w in re.split(r"[^a-z]+", (business.get("name") or "").lower()) if len(w) > 3]
+    if any(w in local for w in words):
+        return False
+    return dom in FREE_MAIL and bool(re.match(r"^[a-z]+(\.[a-z]+)?\d*$", local))
 
 
 async def save_contacts(b, emails_with_src):
@@ -398,7 +402,7 @@ async def check_eligibility(b, contact, a, s):
         reasons.append(f"suppressed ({sup['reason']})")
     if not contact.get("verified_on_source"):
         reasons.append("email address not verified from a public source")
-    if contact.get("personal") and not s["compliance"]["allow_personal_addresses"]:
+    if contact.get("personal") and not s["compliance"].get("allow_personal_addresses", True):
         reasons.append("address looks personal, not a business role address")
     if (a.get("features") or {}).get("no_commercial_email_statement"):
         reasons.append("website states it does not want unsolicited commercial email")

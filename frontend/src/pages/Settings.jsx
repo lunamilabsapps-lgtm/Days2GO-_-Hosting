@@ -153,7 +153,7 @@ export default function SettingsPage() {
         </TabsContent>
         <TabsContent value="compliance">
           <Form section="compliance" data={s.compliance} onSaved={load} note="Australian Spam Act 2003: emails are only prepared for business role addresses conspicuously published on the business's own website, where the message relates to the business's role and the site doesn't refuse commercial email. Every recipient gets a consent record, sender identification and a working unsubscribe. Confirm both checkboxes once you have reviewed these rules and the service catalogue."
-            fields={[["configured", "I have reviewed and confirm the compliance settings", "bool"], ["offer_reviewed", "I have reviewed the Bright Coda offer catalogue", "bool"], ["allow_personal_addresses", "Allow personal-looking addresses (not recommended)", "bool"], ["default_basis", "Consent basis recorded", "select:inferred_conspicuous_publication,express_consent"]]} />
+            fields={[["configured", "I have reviewed and confirm the compliance settings", "bool"], ["offer_reviewed", "I have reviewed the Bright Coda offer catalogue", "bool"], ["allow_personal_addresses", "Use any email published by the business (incl. gmail/outlook)", "bool"], ["default_basis", "Consent basis recorded", "select:inferred_conspicuous_publication,express_consent"]]} />
         </TabsContent>
         <TabsContent value="research" className="space-y-6">
           <Form section="research" data={s.research} onSaved={load}
