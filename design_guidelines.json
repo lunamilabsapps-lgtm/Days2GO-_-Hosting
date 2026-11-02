@@ -1,0 +1,176 @@
+{
+  "project_identity": {
+    "name": "Bright Coda Local Business Scout",
+    "tagline": "Autonomous Local Prospecting & Email Outreach Command Platform",
+    "theme_mode": "dark_light_switchable",
+    "default_theme": "dark",
+    "design_archetype": "Swiss Tactical Command Center & Autonomous Agent Operating System"
+  },
+  "typography": {
+    "font_family_headings": "Outfit, sans-serif",
+    "font_family_body": "Plus Jakarta Sans, sans-serif",
+    "font_family_mono": "JetBrains Mono, monospace",
+    "font_imports": [
+      "https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap"
+    ],
+    "scale": {
+      "h1": "text-3xl md:text-4xl font-extrabold tracking-tight",
+      "h2": "text-xl md:text-2xl font-bold tracking-tight",
+      "h3": "text-lg md:text-xl font-semibold",
+      "h4": "text-base font-semibold",
+      "body": "text-sm leading-relaxed",
+      "caption": "text-xs font-mono tracking-wide uppercase"
+    }
+  },
+  "colors": {
+    "dark_mode": {
+      "bg_app": "#080B11",
+      "bg_card": "#0F1623",
+      "bg_card_hover": "#162032",
+      "bg_sidebar": "#0A0E17",
+      "border_color": "#1E293B",
+      "border_accent": "#334155",
+      "text_primary": "#F8FAFC",
+      "text_secondary": "#94A3B8",
+      "text_muted": "#64748B",
+      "primary_accent": "#06B6D4",
+      "primary_accent_hover": "#0891B2",
+      "secondary_accent": "#6366F1",
+      "status_emerald_replied": "#10B981",
+      "status_emerald_bg": "rgba(16, 185, 129, 0.15)",
+      "status_emerald_border": "rgba(16, 185, 129, 0.35)",
+      "grade_A": "#10B981",
+      "grade_B": "#3B82F6",
+      "grade_C": "#F59E0B",
+      "grade_D": "#EF4444"
+    },
+    "light_mode": {
+      "bg_app": "#F8FAFC",
+      "bg_card": "#FFFFFF",
+      "bg_card_hover": "#F1F5F9",
+      "bg_sidebar": "#0F172A",
+      "border_color": "#E2E8F0",
+      "border_accent": "#CBD5E1",
+      "text_primary": "#0F172A",
+      "text_secondary": "#475569",
+      "text_muted": "#94A3B8",
+      "primary_accent": "#0284C7",
+      "primary_accent_hover": "#0369A1",
+      "secondary_accent": "#4F46E5",
+      "status_emerald_replied": "#059669",
+      "status_emerald_bg": "#D1FAE5",
+      "status_emerald_border": "#6EE7B7",
+      "grade_A": "#059669",
+      "grade_B": "#2563EB",
+      "grade_C": "#D97706",
+      "grade_D": "#DC2626"
+    }
+  },
+  "layout_and_navigation": {
+    "sidebar_width": "w-64",
+    "navigation_items": [
+      { "id": "dashboard", "label": "Dashboard", "icon": "LayoutDashboard" },
+      { "id": "new_search", "label": "New Search", "icon": "Search" },
+      { "id": "live_agent", "label": "Live Agent Activity", "icon": "Activity" },
+      { "id": "coverage_map", "label": "Geographic Coverage", "icon": "MapPin" },
+      { "id": "prospects", "label": "Prospects", "icon": "Users" },
+      { "id": "assessments", "label": "Website Assessments", "icon": "Globe" },
+      { "id": "campaigns", "label": "Email Campaigns", "icon": "Mail" },
+      { "id": "replies", "label": "Replies", "icon": "MessageSquare", "badge": "GREEN_TAG" },
+      { "id": "notifications", "label": "Notifications", "icon": "Bell" },
+      { "id": "service_catalogue", "label": "Service Catalogue", "icon": "BookOpen" },
+      { "id": "integrations", "label": "Integrations", "icon": "Cpu" },
+      { "id": "settings", "label": "Settings", "icon": "Settings" }
+    ],
+    "topbar_elements": [
+      "Agent Status Pill (Active / Paused / Idle with live pulsing indicator)",
+      "Global Search bar for Suburbs & Prospects",
+      "Cost Tracking Counter badge ($ spend, tokens consumed)",
+      "Dark / Light theme toggle switch",
+      "Notification bell with unread indicator dot",
+      "User avatar & profile dropdown"
+    ]
+  },
+  "key_screens_and_components": {
+    "live_agent_activity_dashboard": {
+      "hero_working_panel": {
+        "description": "Large prominent card showing the exact prospect being scanned right now in real time.",
+        "fields": [
+          "Business Name & Industry Category Badge",
+          "Suburb & Address Tag",
+          "Website URL & Live Screenshot Preview Container",
+          "Current Stage Pipeline (Suburb Discovery -> OSM Scrape -> Dedupe -> AI Web Audit -> Lead Scoring -> Email Personalization)",
+          "AI Audit Findings Bullets (Tech stack, SEO rating, value prop match, missing contact info)",
+          "Contact Status & Found Email/Phone",
+          "Lead Score Gauge (1-100 with A/B/C/D Grade Badge)",
+          "Generated Email Preview snippet",
+          "Control Bar: Pause, Resume, Stop Agent, Step Speed Selector (1x, 2x, Fast-Forward)"
+        ]
+      },
+      "streaming_activity_timeline": {
+        "description": "Live feed panel displaying step-by-step agent logs with timestamps, icons, color-coded event severity, and collapsible tool output receipts.",
+        "features": ["Filter by log type (Scrapes, Audits, Emails, Errors)", "Auto-scroll toggle", "Expand log JSON/data"]
+      }
+    },
+    "stats_grid_11_metrics": [
+      { "id": "suburbs_discovered", "title": "Suburbs Discovered", "format": "number" },
+      { "id": "active_searches", "title": "Active Suburb Searches", "format": "number" },
+      { "id": "businesses_scraped", "title": "Businesses Scraped", "format": "number" },
+      { "id": "deduplicated_count", "title": "Deduplicated Leads", "format": "number" },
+      { "id": "grade_a_leads", "title": "Grade A Prospects", "format": "number_badge", "color": "emerald" },
+      { "id": "grade_b_c_d_leads", "title": "Grade B / C / D Breakdown", "format": "bar_breakdown" },
+      { "id": "emails_drafted", "title": "Emails Personalised", "format": "number" },
+      { "id": "emails_approved_sent", "title": "Emails Approved & Sent", "format": "number" },
+      { "id": "open_rate", "title": "Email Open Rate", "format": "percentage" },
+      { "id": "reply_rate", "title": "Reply Rate", "format": "percentage" },
+      { "id": "cost_spend", "title": "API & LLM Spend", "format": "currency" }
+    ],
+    "geographic_coverage_map": {
+      "library": "Leaflet.js / react-leaflet",
+      "suburb_statuses": {
+        "unsearched": { "color": "#64748B", "label": "Unsearched" },
+        "searching": { "color": "#06B6D4", "label": "Searching Now", "pulse": true },
+        "completed": { "color": "#10B981", "label": "Completed" },
+        "needs_research": { "color": "#F59E0B", "label": "Needs Research" }
+      },
+      "overlay_features": ["Prospect count chips on suburb centroids", "Click suburb to open Suburb Detail Drawer", "Search query bounding box visualization"]
+    },
+    "replies_screen": {
+      "must_have": "PROMINENT GREEN REPLIED TAG on reply cards and email threads.",
+      "tag_styling": "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30 font-bold text-xs px-2.5 py-1 rounded-full uppercase tracking-wider flex items-center gap-1.5",
+      "features": ["AI Sentiment analysis tag (Interested, Question, Not Interested, Opt-Out)", "Quick Reply drafting box", "Mark as Handled toggle"]
+    }
+  },
+  "testing_and_accessibility": {
+    "data_testid_policy": "ALL interactive elements, buttons, inputs, navigation links, status indicators, tabs, modal triggers, map suburb overlays, and table rows MUST have explicit data-testid attributes.",
+    "sample_data_testids": [
+      "data-testid=\"sidebar-nav-dashboard\"",
+      "data-testid=\"sidebar-nav-live-agent\"",
+      "data-testid=\"sidebar-nav-replies\"",
+      "data-testid=\"theme-toggle-button\"",
+      "data-testid=\"agent-pause-button\"",
+      "data-testid=\"agent-resume-button\"",
+      "data-testid=\"agent-stop-button\"",
+      "data-testid=\"live-prospect-card\"",
+      "data-testid=\"prospect-grade-badge\"",
+      "data-testid=\"green-replied-tag\"",
+      "data-testid=\"suburb-map-container\"",
+      "data-testid=\"prospects-table\"",
+      "data-testid=\"prospect-search-input\"",
+      "data-testid=\"email-approve-button\"",
+      "data-testid=\"cost-tracker-widget\""
+    ]
+  },
+  "media_assets": {
+    "melbourne_city_image": "https://images.unsplash.com/photo-1594300157693-a741f98738c2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwyfHxtZWxib3VybmUlMjBza3lsaW5lJTIwYWVyaWFsJTIwY2l0eXNjYXBlfGVufDB8fHx8MTc5MzU4NjMxMHww&ixlib=rb-4.1.0&q=85",
+    "melbourne_skyline_alt": "https://images.unsplash.com/photo-1595434971780-79d5c20c5090?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxOTF8MHwxfHNlYXJjaHwxfHxtZWxib3VybmUlMjBza3lsaW5lJTIwYWVyaWFsJTIwY2l0eXNjYXBlfGVufDB8fHx8MTc5MzU4NjMxMHww&ixlib=rb-4.1.0&q=85"
+  },
+  "instructions_to_main_agent": [
+    "Build a clean, polished, dark/light compatible React SaaS application using Tailwind CSS & Lucide icons.",
+    "Do NOT use TypeScript file extensions - use standard JavaScript (.js / .jsx) components.",
+    "Ensure all components gracefully handle dark mode switching via a theme provider (using dark class on root).",
+    "Implement the live agent activity view with streaming logs, pause/resume/stop buttons, step-by-step progress cards, and real-time animation pulses.",
+    "Ensure every reply item displays the required prominent GREEN REPLIED tag with custom emerald styling.",
+    "Include data-testid on every single button, form field, tab, table row, nav link, and action element."
+  ]
+}

@@ -1,0 +1,95 @@
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD}
+    volumes:
+      - mongo_data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      MONGO_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      RUN_WORKER: "false"
+      DATA_DIR: /data
+    volumes:
+      - app_data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:8001/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+
+  worker:
+    build: ./backend
+    restart: unless-stopped
+    command: ["python", "worker.py"]
+    env_file: .env
+    environment:
+      MONGO_URL: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      DATA_DIR: /data
+    volumes:
+      - app_data:/data
+    depends_on:
+      mongo:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import asyncio,os,datetime as d;from motor.motor_asyncio import AsyncIOMotorClient as C;h=asyncio.run(C(os.environ['MONGO_URL'])[os.environ['DB_NAME']].worker_health.find_one({'_id':'worker'}));exit(0 if h and d.datetime.fromisoformat(h['last_heartbeat'])>d.datetime.now(d.timezone.utc)-d.timedelta(seconds=60) else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        REACT_APP_BACKEND_URL: https://${APP_DOMAIN}
+    restart: unless-stopped
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - frontend
+
+  backup:
+    image: mongo:7
+    restart: unless-stopped
+    environment:
+      MONGO_URI: mongodb://${MONGO_ROOT_USER}:${MONGO_ROOT_PASSWORD}@mongo:27017/?authSource=admin
+      DB_NAME: ${DB_NAME}
+      KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - ./backups:/backups
+    entrypoint: ["/bin/sh", "-c", "while true; do mongodump --uri=\"$$MONGO_URI\" --db=\"$$DB_NAME\" --gzip --archive=/backups/mongo-$$(date +%Y%m%d-%H%M).archive.gz; find /backups -name 'mongo-*.archive.gz' -mtime +$$KEEP_DAYS -delete; sleep 86400; done"]
+    depends_on:
+      mongo:
+        condition: service_healthy
+
+volumes:
+  mongo_data:
+  app_data:
+  caddy_data:
+  caddy_config:

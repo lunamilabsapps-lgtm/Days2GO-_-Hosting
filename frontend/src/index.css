@@ -1,0 +1,76 @@
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Outfit:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap");
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 210 40% 98%;
+    --foreground: 222 47% 11%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 11%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 11%;
+    --primary: 200 98% 39%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 210 40% 96%;
+    --secondary-foreground: 222 47% 11%;
+    --muted: 210 40% 96%;
+    --muted-foreground: 215 16% 40%;
+    --accent: 210 40% 94%;
+    --accent-foreground: 222 47% 11%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 89%;
+    --input: 214 32% 89%;
+    --ring: 200 98% 39%;
+    --radius: 0.6rem;
+    --sidebar: 222 47% 11%;
+  }
+  .dark {
+    --background: 220 36% 5%;
+    --foreground: 210 40% 98%;
+    --card: 219 40% 10%;
+    --card-foreground: 210 40% 98%;
+    --popover: 219 40% 10%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 189 94% 43%;
+    --primary-foreground: 220 36% 5%;
+    --secondary: 217 33% 15%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217 33% 14%;
+    --muted-foreground: 215 20% 65%;
+    --accent: 217 33% 16%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 33% 17%;
+    --input: 217 33% 20%;
+    --ring: 189 94% 43%;
+    --sidebar: 222 41% 6%;
+  }
+}
+
+@layer base {
+  * { @apply border-border; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Plus Jakarta Sans", sans-serif;
+    font-size: 14px;
+  }
+  h1, h2, h3, h4, .font-display { font-family: "Outfit", sans-serif; }
+  .font-mono, code { font-family: "JetBrains Mono", monospace; }
+}
+
+.eyebrow { font-family: "JetBrains Mono", monospace; font-size: 10.5px; letter-spacing: 0.12em; text-transform: uppercase; color: hsl(var(--muted-foreground)); }
+.panel { background: hsl(var(--card)); border: 1px solid hsl(var(--border)); border-radius: 12px; }
+.grid-bg { background-image: linear-gradient(hsl(var(--border) / 0.5) 1px, transparent 1px), linear-gradient(90deg, hsl(var(--border) / 0.5) 1px, transparent 1px); background-size: 28px 28px; }
+.fade-in { animation: fadeIn 0.35s ease-out both; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.pulse-dot { position: relative; }
+.pulse-dot::after { content: ""; position: absolute; inset: -4px; border-radius: 999px; background: currentColor; opacity: 0.35; animation: ping 1.4s cubic-bezier(0,0,.2,1) infinite; }
+@keyframes ping { 75%, 100% { transform: scale(2); opacity: 0; } }
+.scan-line { background: linear-gradient(180deg, transparent, hsl(var(--primary) / 0.25), transparent); height: 60px; animation: scan 2.4s linear infinite; }
+@keyframes scan { from { transform: translateY(-60px); } to { transform: translateY(300px); } }
+.leaflet-container { background: hsl(var(--muted)); font-family: "Plus Jakarta Sans", sans-serif; }
+select.native { @apply h-9 rounded-md border border-input bg-background px-2 text-sm; }
