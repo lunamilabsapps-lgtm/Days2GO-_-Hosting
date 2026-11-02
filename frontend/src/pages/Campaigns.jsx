@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PageHeader, Section, GradeBadge, StatusBadge, Empty } from "@/components/common";
 import { api, errMsg, fmtDate } from "@/lib/api";
+import SentEmails from "@/components/SentEmails";
 
 function ModeToggle({ c, onDone }) {
   const auto = c.mode === "autonomous";
@@ -53,6 +54,7 @@ export default function Campaigns() {
   const [settings, setSettings] = useState(null);
   const [searches, setSearches] = useState([]);
   const [newOpen, setNewOpen] = useState(false);
+  const [view, setView] = useState("prepare");
   const [nc, setNc] = useState({ name: "", search: "", daily_limit: 20 });
 
   const load = () => {
@@ -90,6 +92,12 @@ export default function Campaigns() {
       ) : (!s.compliance.configured || !s.compliance.offer_reviewed || !s.resend.api_key_set) && (
         <div className="panel border-red-500/40 p-4 text-sm text-red-500" data-testid="campaign-setup-banner">Live sending is blocked until compliance settings, offer review, sender details and the Resend API key are configured.</div>
       ))}
+      <div className="flex w-fit rounded-lg border p-1" data-testid="campaigns-view-toggle">
+        {[["prepare", "Prepared emails & campaigns"], ["sent", "Sent emails"]].map(([k, l]) => (
+          <button key={k} onClick={() => setView(k)} data-testid={`campaigns-view-${k}`} className={`rounded-md px-4 py-2 text-sm font-medium ${view === k ? "bg-primary text-primary-foreground" : "text-muted-foreground"}`}>{l}</button>
+        ))}
+      </div>
+      {view === "sent" ? <SentEmails /> : (
       <div className="grid gap-6 xl:grid-cols-[1.4fr_1fr]">
         <Section title="Prepared emails" right={
           <select className="native" value={status} onChange={(e) => setStatus(e.target.value)} data-testid="drafts-status-filter">
@@ -158,6 +166,7 @@ export default function Campaigns() {
           </div>
         </Section>
       </div>
+      )}
     </div>
   );
 }

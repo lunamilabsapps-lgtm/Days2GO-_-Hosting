@@ -290,8 +290,10 @@ async def imap_loop():
             n = await poll_imap()
             await db.worker_health.update_one({"_id": "imap"}, {"$set": {"last_poll": iso(), "new": n, "error": None}}, upsert=True)
         except Exception as e:
+            prev = await db.worker_health.find_one({"_id": "imap"}) or {}
             await db.worker_health.update_one({"_id": "imap"}, {"$set": {"last_poll": iso(), "error": str(e)[:200]}}, upsert=True)
-            await notify("api_failure", "Mailbox (IMAP) check failed", str(e)[:200])
+            if prev.get("error") != str(e)[:200]:
+                await notify("api_failure", "Mailbox (IMAP) check failed", str(e)[:200])
         await asyncio.sleep(max(30, int(s["imap"]["poll_seconds"])))
 
 

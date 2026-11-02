@@ -765,6 +765,31 @@ async def list_campaigns(user=Depends(require_admin)):
     return docs
 
 
+@api.get("/outbound")
+async def list_outbound(q: str = "", replied: str = "", user=Depends(require_admin)):
+    f = {}
+    if q:
+        f["$or"] = [{"business_name": {"$regex": re.escape(q), "$options": "i"}}, {"to": {"$regex": re.escape(q), "$options": "i"}}]
+    docs = await db.outbound.find(f, {"_id": 0, "unsub_token": 0}).sort("created_at", -1).to_list(2000)
+    camps = {c["id"]: c["name"] for c in await db.campaigns.find({}, {"_id": 0, "id": 1, "name": 1}).to_list(500)}
+    drafts = {d["id"]: d for d in await db.drafts.find({"id": {"$in": [o["draft_id"] for o in docs]}}, {"_id": 0, "id": 1, "body": 1}).to_list(2000)}
+    replies = {}
+    for m in await db.inbound.find({"kind": "reply", "outbound_id": {"$in": [o["id"] for o in docs]}}, {"_id": 0}).to_list(2000):
+        replies.setdefault(m["outbound_id"], m)
+    biz = {b["id"]: b for b in await db.businesses.find({"id": {"$in": [o["business_id"] for o in docs]}}, {"_id": 0, "id": 1, "reply_status": 1}).to_list(2000)}
+    out = []
+    for o in docs:
+        o["campaign_name"] = camps.get(o.get("campaign_id"))
+        o["body"] = drafts.get(o["draft_id"], {}).get("body")
+        r = replies.get(o["id"])
+        o["replied"] = bool(r) or o.get("status") == "replied" or biz.get(o["business_id"], {}).get("reply_status") == "replied"
+        o["reply"] = {k: r.get(k) for k in ("subject", "received_at", "snippet", "sentiment", "from")} if r else None
+        if replied == "yes" and not o["replied"] or replied == "no" and o["replied"]:
+            continue
+        out.append(o)
+    return out
+
+
 @api.get("/campaigns/{cid}/outbound")
 async def campaign_outbound(cid: str, user=Depends(require_admin)):
     return await db.outbound.find({"campaign_id": cid}, {"_id": 0, "unsub_token": 0}).sort("created_at", -1).to_list(1000)
