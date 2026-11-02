@@ -573,7 +573,7 @@ async def visabal_brief(bid: str, user=Depends(require_admin)):
     lines += ["", f"Recommended Bright Coda package: {opp[0]['service_name'] if opp else 'To be decided'}" + (f" - {opp[0]['reason']}" if opp else "")]
     lines += ["", "Supporting research:", f"- Summary: {a.get('summary') or '-'}", f"- Lead score: {a.get('score')} (grade {a.get('grade')})",
               f"- Load time: {a.get('load_ms')} ms" if a.get("load_ms") else "- Load time: n/a", f"- Site builder: {f.get('builder') or 'unknown'}",
-              f"- Discovery source: {b.get('source_url')}"]
+              f"- Discovery source: {b.get('source_url') or 'n/a'}"]
     return {"text": "\n".join(lines)}
 
 
@@ -758,8 +758,10 @@ async def list_campaigns(user=Depends(require_admin)):
         c["followups_scheduled"] = await db.outbound.count_documents({"campaign_id": c["id"], "followup_status": {"$in": ["scheduled", "drafted"]}})
         c["followups_sent"] = await db.outbound.count_documents({"campaign_id": c["id"], "kind": "followup"})
         c["next_followup_at"] = (await db.outbound.find_one({"campaign_id": c["id"], "followup_status": "scheduled"}, {"_id": 0, "followup_due_at": 1}, sort=[("followup_due_at", 1)]) or {}).get("followup_due_at")
-        day = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-        c["sent_today"] = await db.outbound.count_documents({"campaign_id": c["id"], "created_at": {"$gte": day}})
+        from zoneinfo import ZoneInfo
+        st = await get_settings()
+        day = datetime.now(ZoneInfo(st["sending"]["timezone"])).replace(hour=0, minute=0, second=0, microsecond=0).astimezone(timezone.utc).isoformat()
+        c["sent_today"] = await db.outbound.count_documents({"campaign_id": c["id"], "created_at": {"$gte": day}, "test_mode": st["sending"]["test_mode"]})
     return docs
 
 

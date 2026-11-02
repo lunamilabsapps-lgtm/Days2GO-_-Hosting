@@ -17,6 +17,16 @@ Additional requirements: multiple campaigns; a permanent exclusion/suppression l
 - Everything above. Iteration 1 testing: backend 44/44 passed. Fixes applied after it: round-robin discovery across searches, partial-zone coverage when max is reached, lockout by email (XFF bypass), settings validation and secret clearing, a quick Overpass test, test-mode unsubscribe no longer suppressing real addresses, consent record upsert, daily limit in the sending timezone, 404s, unexclude restoring drafts, mobile overflow, campaigns filter race, toast typo.
 - Initial Melbourne butchers search (262 suburbs, research & draft mode) is running.
 
+## Implemented (2026-11-02, v2 configuration brief)
+- Business identity: Leon Duddington / Bright Coda (sole trader), ABN 42 932 842 837, outreach@ → reply-to support@, signature block, Spam Act footer with address, no GST.
+- IMAP SSL/TLS/STARTTLS setting; Resend webhooks incl. opened/clicked.
+- Approved catalogue v2 (Starter $249+$29/mo, Business $599+$29/mo, AI Business from $1,299+$49/mo, Ecommerce from $1,999+quoted), old services archived; package recommendation logic in AI prompts.
+- Visabal research brief per prospect (copy button).
+- Per-campaign REVIEW MODE / FULL AUTONOMY control (confirm required), per-campaign daily limit (default 20), duplicate-send guard, shared-address draft dedupe, bounce guard auto-pause.
+- One follow-up 5 business days later (threaded), cancelled on reply/unsubscribe/bounce/complaint/suppression/pause/stop/limit.
+- Reply sentiment (positive responses), campaign analytics extended. Green rows for replied prospects.
+- Iteration 2 testing: backend 11/11 + 27/27, frontend all flows passed.
+
 ## Backlog
 - P1: Email follow-up sequences (follow_up_status exists, no automatic follow-ups are sent); additional discovery source adapters (licensed directories / search APIs); shadcn Select restyle.
 - P2: Resend inbound webhook as an alternative to IMAP; per-search cost dashboard charts.

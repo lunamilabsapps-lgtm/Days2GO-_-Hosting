@@ -385,6 +385,10 @@ Sender: {s['sender'].get('signature_name') or s['sender']['name']} of {s['sender
     out = parse_json(await call_ai("email", system, prompt, b["id"], 1200))
     body = SIGNOFF_RE.sub("", out.get("body", "").strip()).strip()
     elig, reasons, consent = await check_eligibility(b, best, a, s)
+    other = await db.drafts.find_one({"recipient": best["value"], "business_id": {"$ne": b["id"]},
+                                      "status": {"$in": ["pending_approval", "approved", "sent"]}}, {"_id": 0, "business_name": 1})
+    if other:
+        elig, reasons = False, reasons + [f"same address already has an email for {other['business_name']} (shared by multiple locations)"]
     d = {"id": uid(), "business_id": b["id"], "business_name": b["name"], "assessment_id": a["id"],
          "subject": out.get("subject", "").strip(), "body": body, "finding_used": out.get("finding_used"),
          "service_id": out.get("service_id"), "recipient": best["value"], "contact_id": best["id"],

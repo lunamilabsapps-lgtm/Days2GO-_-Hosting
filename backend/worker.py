@@ -251,12 +251,13 @@ async def sender_step():
     for c in camps:
         if c.get("sent_count", 0) >= min(c.get("limit") or 10**9, s["sending"]["campaign_limit"]):
             await db.campaigns.update_one({"id": c["id"]}, {"$set": {"status": "completed", "completed_at": iso()}})
+            await cancel_followups({"campaign_id": c["id"]}, "campaign sending limit reached")
             continue
         camp_today = await db.outbound.count_documents({"campaign_id": c["id"], "created_at": {"$gte": day}, "test_mode": test})
         if camp_today >= int(c.get("daily_limit") or 20):
             await db.campaigns.update_one({"id": c["id"]}, {"$set": {"waiting_reason": f"campaign daily limit reached ({camp_today}/{c.get('daily_limit') or 20})"}})
             continue
-        d = await db.drafts.find_one({"campaign_id": c["id"], "status": "approved"}, {"_id": 0}, sort=[("kind", -1), ("approved_at", 1)])
+        d = await db.drafts.find_one({"campaign_id": c["id"], "status": "approved"}, {"_id": 0}, sort=[("kind", 1), ("approved_at", 1)])
         if not d:
             pending = await db.drafts.count_documents({"campaign_id": c["id"], "status": "pending_approval"})
             fu = await db.outbound.count_documents({"campaign_id": c["id"], "followup_status": {"$in": ["scheduled", "drafted"]}})
