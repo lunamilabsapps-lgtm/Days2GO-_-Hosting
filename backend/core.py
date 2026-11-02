@@ -120,6 +120,7 @@ DEFAULT_SETTINGS = {
                       "reply": True, "delivery_problem": True, "unsubscribe": True, "research_error": True,
                       "api_failure": True, "backup": True},
     "backups": {"enabled": True, "interval_hours": 24, "keep": 14},
+    "summary": {"enabled": True, "recipient": "leon.tex610@gmail.com", "hour": 8},
 }
 SECRET_FIELDS = {("resend", "api_key"), ("resend", "webhook_secret"), ("imap", "password")}
 

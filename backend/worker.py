@@ -317,6 +317,64 @@ async def run_backup(reason="scheduled"):
     return name, counts
 
 
+async def build_summary(s):
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(s["sending"]["timezone"])
+    today0 = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
+    y0 = today0 - timedelta(days=1)
+    rng = {"$gte": y0.astimezone(timezone.utc).isoformat(), "$lt": today0.astimezone(timezone.utc).isoformat()}
+    sends = await db.outbound.find({"created_at": rng, "test_mode": False}, {"_id": 0}).to_list(500)
+    replies = await db.inbound.find({"created_at": rng, "kind": "reply"}, {"_id": 0}).to_list(200)
+    tops = await db.businesses.find({"discovered_at": rng, "grade": {"$in": ["A", "B"]}}, {"_id": 0}).sort("score", -1).limit(10).to_list(10)
+    pending = await db.drafts.count_documents({"status": "pending_approval"})
+    url = os.environ.get("PUBLIC_APP_URL", "").rstrip("/")
+    day = y0.strftime("%A %d %B")
+    lines = [f"Bright Coda Scout - summary for {day}", "", f"Emails sent: {len(sends)}"]
+    lines += [f"  - {o['business_name']} ({o['to']}){' [follow-up]' if o.get('kind') == 'followup' else ''}" for o in sends[:20]]
+    lines += ["", f"Replies received: {len(replies)}"]
+    lines += [f"  - {r['business_name']}: {r.get('subject', '')} ({r.get('sentiment') or 'unclassified'})" for r in replies]
+    lines += ["", f"New top prospects (grade A/B): {len(tops)}"]
+    lines += [f"  - {b['name']}, {b.get('suburb')} - score {b.get('score')} ({b.get('grade')})" for b in tops]
+    lines += ["", f"Emails waiting for your approval: {pending}", f"Open the app: {url}"]
+    text = "\n".join(lines)
+    esc = lambda x: str(x).replace("&", "&amp;").replace("<", "&lt;")
+    html = "<div style='font-family:Arial;font-size:14px;line-height:1.5'>" + "<br>".join(
+        (f"<b>{esc(l)}</b>" if l and not l.startswith("  -") else esc(l)) for l in lines) + "</div>"
+    return f"Scout summary {y0.strftime('%d %b')}: {len(sends)} sent, {len(replies)} replies, {len(tops)} top prospects", text, html
+
+
+async def send_summary(s, reason="scheduled"):
+    import httpx
+    key, snd, to = s["resend"]["api_key"], s["sender"], s["summary"]["recipient"]
+    if not key or not snd.get("email") or not to:
+        raise RuntimeError("Resend key, sender email and summary recipient are required")
+    subject, text, html = await build_summary(s)
+    async with httpx.AsyncClient(timeout=20) as c:
+        r = await c.post("https://api.resend.com/emails", headers={"Authorization": f"Bearer {key}"},
+                         json={"from": f"Bright Coda Scout <{snd['email']}>", "to": [to], "subject": subject, "text": text, "html": html})
+    if r.is_error:
+        raise RuntimeError(f"Resend HTTP {r.status_code}: {r.text[:200]}")
+    await audit("daily_summary_sent", "summary", None, {"to": to, "reason": reason})
+    return subject
+
+
+async def summary_loop():
+    from zoneinfo import ZoneInfo
+    while True:
+        try:
+            s = await get_settings()
+            now_l = datetime.now(ZoneInfo(s["sending"]["timezone"]))
+            h = await db.worker_health.find_one({"_id": "summary"}) or {}
+            today = now_l.strftime("%Y-%m-%d")
+            if s["summary"]["enabled"] and now_l.hour >= int(s["summary"]["hour"]) and h.get("last_date") != today:
+                await db.worker_health.update_one({"_id": "summary"}, {"$set": {"last_date": today, "at": iso()}}, upsert=True)
+                await send_summary(s)
+        except Exception as e:
+            log.exception("summary")
+            await notify("api_failure", "Daily summary email failed", str(e)[:200])
+        await asyncio.sleep(60)
+
+
 async def backup_loop():
     while True:
         try:
@@ -342,7 +400,7 @@ async def start_worker():
     await create_indexes()
     await recover()
     await db.worker_health.update_one({"_id": "worker"}, {"$set": {"started_at": iso()}}, upsert=True)
-    tasks = [discovery_loop(), sender_loop(), imap_loop(), backup_loop(), heartbeat_loop()] + [research_loop(i + 1) for i in range(4)]
+    tasks = [discovery_loop(), sender_loop(), imap_loop(), backup_loop(), heartbeat_loop(), summary_loop()] + [research_loop(i + 1) for i in range(4)]
     return [asyncio.create_task(t) for t in tasks]
 
 

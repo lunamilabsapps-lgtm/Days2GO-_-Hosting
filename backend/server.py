@@ -20,7 +20,7 @@ from discovery import resolve_region, filter_zones, CATEGORY_TAGS, overpass, geo
 from ai import call_ai, parse_json, ai_configured, AIError
 from assess import generate_draft, services_catalogue, check_eligibility
 from mailer import mark_unsubscribed, process_webhook_event, imap_test, public_url, cancel_followups
-from worker import start_worker, run_backup
+from worker import start_worker, run_backup, send_summary
 
 app = FastAPI(title="Bright Coda Local Business Scout")
 api = APIRouter(prefix="/api")
@@ -952,7 +952,7 @@ async def read_settings(user=Depends(require_admin)):
 @api.put("/settings/{section}")
 async def write_settings(section: str, request: Request, user=Depends(require_admin)):
     body = await request.json()
-    if section not in ("sender", "sending", "compliance", "scoring", "research", "imap", "resend", "notifications", "backups", "overpass_endpoints"):
+    if section not in ("sender", "sending", "compliance", "scoring", "research", "imap", "resend", "notifications", "backups", "summary", "overpass_endpoints"):
         raise HTTPException(400, "Unknown section")
     if section == "overpass_endpoints":
         await db.settings.update_one({"_id": "app"}, {"$set": {"overpass_endpoints": [str(x) for x in body.get("value", []) if x]}})
@@ -1119,6 +1119,14 @@ async def search_report(user=Depends(require_admin)):
         out.append({**sr, "businesses": len(ids), "grades": grades, "sent": sent, "replies": replies,
                     "ai_cost_usd": round(cost[0]["c"], 4) if cost else 0})
     return out
+
+
+@api.post("/summary/send-now")
+async def summary_now(user=Depends(require_admin)):
+    try:
+        return {"subject": await send_summary(await get_settings(), "manual")}
+    except Exception as e:
+        raise HTTPException(400, str(e)[:300])
 
 
 @api.get("/backups")
