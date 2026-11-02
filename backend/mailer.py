@@ -19,7 +19,8 @@ def compose_body(d, s, token):
     snd = s["sender"]
     unsub = f"{public_url()}/api/unsubscribe/{token}"
     sig = snd.get("signature_name") or snd["name"]
-    ident = " | ".join(x for x in [snd.get("business_name"), f"ABN {snd['abn']}" if snd.get("abn") else "",
+    ident = " | ".join(x for x in [f"{snd.get('business_name')} ({snd['business_status']})" if snd.get("business_status") else snd.get("business_name"),
+                                   f"ABN {snd['abn']}" if snd.get("abn") else "",
                                    snd.get("business_address"), snd.get("website")] if x)
     sig_lines = [x for x in [sig if sig != snd.get("business_name") else "", " · ".join(y for y in [snd.get("business_name"), snd.get("location")] if y), snd.get("mobile")] if x]
     if snd.get("signature_block"):
@@ -167,9 +168,20 @@ def _body_text(msg):
     return ""
 
 
-def _imap_fetch(cfg, since_days=4):
-    m = imaplib.IMAP4_SSL(cfg["host"], int(cfg["port"]), timeout=30)
+def _imap_connect(cfg, timeout):
+    sec = (cfg.get("security") or "ssl").lower()
+    if sec == "ssl":
+        m = imaplib.IMAP4_SSL(cfg["host"], int(cfg["port"]), timeout=timeout)
+    else:
+        m = imaplib.IMAP4(cfg["host"], int(cfg["port"]), timeout=timeout)
+        if sec == "starttls":
+            m.starttls()
     m.login(cfg["username"], cfg["password"])
+    return m
+
+
+def _imap_fetch(cfg, since_days=4):
+    m = _imap_connect(cfg, 30)
     m.select(cfg.get("folder") or "INBOX", readonly=True)
     since = (datetime.now() - timedelta(days=since_days)).strftime("%d-%b-%Y")
     _, ids = m.search(None, f"(SINCE {since})")
@@ -184,8 +196,7 @@ def _imap_fetch(cfg, since_days=4):
 
 async def imap_test(cfg):
     def t():
-        m = imaplib.IMAP4_SSL(cfg["host"], int(cfg["port"]), timeout=20)
-        m.login(cfg["username"], cfg["password"])
+        m = _imap_connect(cfg, 20)
         m.select(cfg.get("folder") or "INBOX", readonly=True)
         m.logout()
     await asyncio.to_thread(t)

@@ -357,6 +357,7 @@ Rules:
 - End with a relaxed, no-pressure ask, and say they're welcome to call or text on {mobile}.
 - Banned: exclamation marks, "leverage", "solutions", "elevate", "take your business to the next level", "digital
   presence", "I came across", bullet points, emojis.
+- Never mention GST, tax or "inc/ex GST".
 - Do NOT write a sign-off or name at the end (added automatically). No unsubscribe line.
 - Subject: 3-7 words, lower-key and specific, like a person would write.
 Respond as JSON: {"subject": "", "body": "", "finding_used": "", "service_id": ""}"""
@@ -372,7 +373,7 @@ Assessment summary: {a.get('summary')}
 Verified issues: {json.dumps(a.get('verified_issues', []))}
 Opportunities: {json.dumps(a.get('opportunities', []))}
 Approved services: {json.dumps([{k: x.get(k) for k in ('id','name','description','features','pricing','delivery_scope')} for x in cat])}
-Sender: {s['sender'].get('signature_name') or s['sender']['name']}, based in {s['sender'].get('location')}, mobile {s['sender'].get('mobile')}"""
+Sender: {s['sender'].get('signature_name') or s['sender']['name']} of {s['sender'].get('business_name')} ({s['sender'].get('business_description', '')}), based in {s['sender'].get('location')}, mobile {s['sender'].get('mobile')}"""
     snd = s["sender"]
     system = EMAIL_SYSTEM.replace("{location}", snd.get("location") or "Melbourne").replace(
         "{experience}", snd.get("experience") or "years in tech").replace("{mobile}", snd.get("mobile") or "the number below")

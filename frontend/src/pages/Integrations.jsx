@@ -73,6 +73,8 @@ export default function Integrations() {
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Host"><Input value={imap.host} onChange={(e) => setImap({ ...imap, host: e.target.value })} data-testid="imap-host-input" /></Field>
               <Field label="Port"><Input type="number" value={imap.port} onChange={(e) => setImap({ ...imap, port: Number(e.target.value) })} data-testid="imap-port-input" /></Field>
+              <Field label="SSL/TLS"><select className="native w-full" value={imap.security || "ssl"} onChange={(e) => setImap({ ...imap, security: e.target.value, port: e.target.value === "ssl" ? 993 : 143 })} data-testid="imap-security-select">
+                <option value="ssl">SSL/TLS (port 993)</option><option value="starttls">STARTTLS (port 143)</option><option value="none">None (not recommended)</option></select></Field>
               <Field label="Username"><Input value={imap.username} onChange={(e) => setImap({ ...imap, username: e.target.value })} data-testid="imap-username-input" /></Field>
               <Field label={`Password ${s.imap.password_set ? `(saved ${s.imap.password_hint})` : ""}`}><Input type="password" value={imap.password} onChange={(e) => setImap({ ...imap, password: e.target.value })} data-testid="imap-password-input" /></Field>
               <Field label="Folder"><Input value={imap.folder} onChange={(e) => setImap({ ...imap, folder: e.target.value })} /></Field>
