@@ -1,11 +1,11 @@
 import { useEffect, useState } from "react";
-import { Brain, Send, Webhook, Inbox, Map, MapPin, Camera, Loader2, PlugZap, Copy } from "lucide-react";
+import { Brain, Send, Webhook, Inbox, Map, MapPin, Camera, Loader2, PlugZap, Copy, Globe, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { PageHeader, Field, StatusBadge } from "@/components/common";
-import { api, errMsg, fmtDate } from "@/lib/api";
+import { api, errMsg, fmtDate, label } from "@/lib/api";
 
 function Card({ id, icon: I, title, desc, ok, children, onTest }) {
   const [busy, setBusy] = useState(false);
@@ -23,6 +23,24 @@ function Card({ id, icon: I, title, desc, ok, children, onTest }) {
       </div>
       {children}
       {res && <div data-testid={`integration-result-${id}`} className={`rounded-md p-2 text-xs ${res.ok ? "bg-emerald-500/10 text-emerald-600 dark:text-emerald-400" : "bg-red-500/10 text-red-500"}`}>{res.ok ? "✓ " : "✗ "}{res.message}</div>}
+    </div>
+  );
+}
+
+function WebsiteRecheck({ stats, canRun, onDone }) {
+  const [busy, setBusy] = useState(false);
+  const run = async () => {
+    setBusy(true);
+    try { const r = await api.post("/website-discovery/recheck"); toast.success(`${r.data.queued} prospect(s) queued for a website search`); onDone(); } catch (e) { toast.error(errMsg(e)); } finally { setBusy(false); }
+  };
+  const u = stats.usage_month || {};
+  const cost = Object.values(u).reduce((a, x) => a + x.cost_usd, 0);
+  return (
+    <div className="panel space-y-3 p-5" data-testid="website-recheck-card">
+      <div className="font-display font-semibold">Website discovery</div>
+      <p className="text-xs text-muted-foreground">Results: {Object.entries(stats.results || {}).map(([k, v]) => `${label(k)} ${v}`).join(" · ") || "no searches yet"} · queued {stats.queued}</p>
+      <p className="text-xs text-muted-foreground" data-testid="website-search-cost">This month: {Object.entries(u).map(([k, v]) => `${k} ${v.queries} searches`).join(", ") || "0 searches"} · about US${cost.toFixed(2)}</p>
+      <Button size="sm" variant="outline" onClick={run} disabled={busy || !canRun} data-testid="website-recheck-button"><RefreshCw className="mr-1 h-4 w-4" />Re-check all "No website" prospects</Button>
     </div>
   );
 }
@@ -51,6 +69,9 @@ export default function Integrations() {
         </Card>
         <Card id="nominatim" icon={MapPin} title="OpenStreetMap Nominatim" desc="City boundary and area resolution" ok />
         <Card id="screenshots" icon={Camera} title="Website screenshots" desc="Headless browser for previews and mobile checks" ok={st.screenshots.configured} />
+        <Card id="serper" icon={Globe} title="Serper (Google search)" desc="Finds websites missing from OpenStreetMap using Google search and Google Maps listings" ok={st.serper.configured} />
+        <Card id="brave" icon={Globe} title="Brave search (fallback)" desc="Used only when the Google search fails or finds nothing" ok={st.brave.configured} />
+        <WebsiteRecheck stats={st.website_discovery} canRun={st.serper.configured || st.brave.configured} onDone={load} />
         <Card id="resend" icon={Send} title="Resend (outbound email)" desc="Your own Resend account and verified sending domain" ok={st.resend.configured}>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label={`API key ${s.resend.api_key_set ? `(saved ${s.resend.api_key_hint})` : ""}`}><Input type="password" placeholder="re_…" value={resend.api_key} onChange={(e) => setResend({ ...resend, api_key: e.target.value })} data-testid="resend-api-key-input" /></Field>

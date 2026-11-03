@@ -203,7 +203,8 @@ def compute_score(weights, b, a, contacts):
     pres = a["presence"]
     q = [v.get("rating") for v in (a.get("quality") or {}).values() if isinstance(v, dict) and isinstance(v.get("rating"), (int, float))]
     avg_q = sum(q) / len(q) if q else None
-    gap = {"no_website": 80, "social_media_only": 85, "website_unavailable": 75, "under_construction": 85}.get(
+    gap = {"no_website": 80, "no_website_found": 80, "social_media_only": 85, "website_unavailable": 75, "under_construction": 85,
+           "website_unverified": 50, "website_not_verified": 50}.get(
         pres, round(100 - (avg_q or 5) * 10))
     opp = max([o.get("strength", 0) for o in a.get("opportunities", [])] or [0])
     rel = 100 if any(o.get("service_id") for o in a.get("opportunities", [])) else 30
@@ -223,12 +224,15 @@ def no_site_assessment(b, pres, note):
             "reason": "No working website was found for this business.", "strength": 60 if pres == "no_website" else 75}]
     return {"summary": note, "quality": {}, "verified_issues": [
         {"issue": {"no_website": "No website listed in the discovery source record",
+                   "no_website_found": "No website found after searching the listing, Google and Google Maps",
+                   "website_unverified": "Possible website found - needs manual check before any outreach",
+                   "website_not_verified": "Website not yet verified - web search was unavailable",
                    "website_unavailable": "Listed website could not be loaded",
                    "social_media_only": "Business relies on a social media page instead of a website",
                    "under_construction": "Website appears to be under construction or nearly empty"}[pres],
          "evidence": note, "commercial_impact": "Customers searching online may not find key details or be able to enquire easily."}],
         "potential_improvements": [], "opportunities": opp, "business_fit": 65, "commercial_value": 55,
-        "confidence": 35 if pres == "no_website" else 60}
+        "confidence": {"no_website": 35, "no_website_found": 70, "website_unverified": 20, "website_not_verified": 20}.get(pres, 60)}
 
 
 async def assess_business(b, search, slot):
@@ -238,6 +242,13 @@ async def assess_business(b, search, slot):
     await activity("opening", f"Opening website: {b.get('website') or 'no website listed'}", b, b.get("_sid"), slot=slot)
     r, f, load_ms, extra, shot = None, None, None, {}, None
     pres_note = ""
+    lookup = None
+    if s["website_discovery"]["enabled"] and (not b.get("website") or norm_domain(b["website"]) in SOCIAL):
+        from website_finder import find_website, apply_found
+        await stage("finding_website")
+        lookup = await find_website(b, slot=slot)
+        if lookup["status"] == "found":
+            b = await apply_found(b, lookup["chosen_url"], lookup["source"], lookup["confidence"])
     if b.get("website") and norm_domain(b["website"]) not in SOCIAL:
         if not await robots_allowed(b["website"]):
             pres_note = "robots.txt disallows automated access; assessment limited to listing data."
@@ -261,6 +272,17 @@ async def assess_business(b, search, slot):
     pres = presence_from(b, r if f else None, f)
     if pres == "website_exists" and not f:
         pres = "website_unavailable"
+    if lookup and pres in ("no_website", "social_media_only"):
+        st = lookup["status"]
+        cand = (lookup.get("candidates") or [{}])[0].get("domain")
+        if st == "needs_review":
+            pres, pres_note = "website_unverified", f"A possible website ({cand}) was found but the match isn't certain. Confirm or reject it on the prospect page."
+        elif st == "search_unavailable":
+            pres, pres_note = "website_not_verified", "Not listed in OpenStreetMap and the web search could not run, so it's not yet known whether this business has a website."
+        elif pres == "no_website" and st == "rejected_by_user":
+            pres, pres_note = "no_website_found", "Manually confirmed: this business has no website of its own."
+        elif pres == "no_website":
+            pres, pres_note = "no_website_found", "No website found: not listed in OpenStreetMap, and no matching site turned up in Google search or Google Maps."
     if not pres_note and pres == "no_website":
         pres_note = "The discovery source (OpenStreetMap) lists no website for this business."
     if not pres_note and pres == "social_media_only":
@@ -329,7 +351,8 @@ async def assess_business(b, search, slot):
         await notify("high_quality_prospect", f"Grade A prospect: {b['name']}", f"Score {score} — {b['suburb']}", link=f"/prospects/{b['id']}")
     b = await db.businesses.find_one({"id": b["id"]}, {"_id": 0})
     order = "ABCD"
-    if order.index(grade) <= order.index(s["scoring"]["min_grade_for_email"]) and email_contacts:
+    unverified = pres in ("website_unverified", "website_not_verified")
+    if not unverified and order.index(grade) <= order.index(s["scoring"]["min_grade_for_email"]) and email_contacts:
         await stage("generating_email")
         await activity("email", "Generating personalised email", b, b.get("_sid"), slot=slot)
         d = await generate_draft(b, a, email_contacts, s, cat)
@@ -340,8 +363,8 @@ async def assess_business(b, search, slot):
         await activity("hold", "Holding email for approval" + (" (research & draft mode)" if mode == "research" else ""),
                        b, b.get("_sid"), slot=slot)
     else:
-        reason = "no public business email found" if not email_contacts else f"grade {grade} below threshold"
-        await db.businesses.update_one({"id": b["id"]}, {"$set": {"email_status": "no_contact" if not email_contacts else "not_qualified"}})
+        reason = "website needs manual verification first" if unverified else "no public business email found" if not email_contacts else f"grade {grade} below threshold"
+        await db.businesses.update_one({"id": b["id"]}, {"$set": {"email_status": "needs_review" if unverified else "no_contact" if not email_contacts else "not_qualified"}})
         await stage("skipping_email", email_status=reason)
         await activity("skip_email", f"No email prepared: {reason}", b, b.get("_sid"), slot=slot)
     return a

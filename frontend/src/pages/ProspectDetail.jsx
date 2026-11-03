@@ -8,6 +8,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { PageHeader, Section, GradeBadge, StatusBadge, RepliedTag } from "@/components/common";
 import AssessmentReport from "@/components/AssessmentReport";
+import WebsiteDiscovery, { sourceLabel } from "@/components/WebsiteDiscovery";
 import { api, errMsg, fmtDate, label } from "@/lib/api";
 
 function DraftEditor({ d, onSaved }) {
@@ -71,6 +72,7 @@ export default function ProspectDetail() {
     try { await api.patch(`/prospects/${id}`, { notes, ...extra }); toast.success("Saved"); load(); } catch (e) { toast.error(errMsg(e)); }
   };
   const draft = d.drafts.find((x) => x.status !== "superseded");
+  const review = b.website_status === "website_unverified";
   return (
     <div className="space-y-6">
       <PageHeader eyebrow={<Link to="/prospects" className="hover:text-primary">← Prospects</Link>} title={b.name}
@@ -83,7 +85,8 @@ export default function ProspectDetail() {
       <div className="grid gap-4 md:grid-cols-4">
         <Section className="md:col-span-1" title="Business details">
           <div className="space-y-2 text-sm">
-            {b.website ? <a href={b.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 break-all text-primary" data-testid="detail-website-link"><ExternalLink className="h-4 w-4 shrink-0" />{b.website}</a> : <div className="text-amber-500">No website listed</div>}
+            {b.website ? <a href={b.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 break-all text-primary" data-testid="detail-website-link"><ExternalLink className="h-4 w-4 shrink-0" />{b.website}</a> : <div className="text-amber-500" data-testid="detail-no-website">{{ no_website_found: "No website found after searching", website_unverified: "Possible website — needs your check", website_not_verified: "Website not yet verified" }[b.website_status] || "No website listed"}</div>}
+            {b.website_source && <div className="text-xs text-muted-foreground" data-testid="detail-website-source">Website found via {sourceLabel(b.website_source)} · confidence {b.website_confidence}</div>}
             {b.phone && <div className="flex items-center gap-2"><Phone className="h-4 w-4" />{b.phone}</div>}
             {b.primary_email && <div className="flex items-center gap-2 break-all"><Mail className="h-4 w-4 shrink-0" />{b.primary_email}</div>}
             <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" />{b.address || b.suburb}</div>
@@ -104,13 +107,14 @@ export default function ProspectDetail() {
           </div>
         </Section>
       </div>
-      <Tabs defaultValue="assessment">
+      <Tabs defaultValue={review ? "website" : "assessment"}>
         <TabsList className="flex-wrap">
-          {["assessment", "visabal", "email", "contacts", "outreach", "history"].map((t) => <TabsTrigger key={t} value={t} data-testid={`detail-tab-${t}`} className="capitalize">{t === "assessment" ? "Opportunity report" : t === "visabal" ? "Visabal brief" : t}</TabsTrigger>)}
+          {["assessment", "website", "visabal", "email", "contacts", "outreach", "history"].map((t) => <TabsTrigger key={t} value={t} data-testid={`detail-tab-${t}`} className="capitalize">{t === "assessment" ? "Opportunity report" : t === "visabal" ? "Visabal brief" : t === "website" ? "Website search" : t}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="visabal"><Section title="Research brief for Visabal" right={<Button size="sm" variant="outline" data-testid="visabal-copy-button" onClick={async () => { try { const r = await api.get(`/prospects/${id}/visabal-brief`); await navigator.clipboard.writeText(r.data.text); setBrief(r.data.text); toast.success("Brief copied — paste it into Visabal"); } catch (e) { toast.error(errMsg(e)); } }}>Copy brief</Button>}>
           <VisabalBrief id={id} brief={brief} setBrief={setBrief} />
         </Section></TabsContent>
+        <TabsContent value="website"><Section title="Website discovery"><WebsiteDiscovery bid={id} lookup={d.website_lookup} business={b} onChange={load} /></Section></TabsContent>
         <TabsContent value="assessment"><Section><AssessmentReport a={d.assessments[0]} /></Section></TabsContent>
         <TabsContent value="email">
           <Section title="Personalised email" right={<Button size="sm" variant="outline" onClick={genEmail} disabled={busy} data-testid="detail-generate-email">{busy ? <Loader2 className="mr-1 h-4 w-4 animate-spin" /> : <PenLine className="mr-1 h-4 w-4" />}{draft ? "Regenerate" : "Generate email"}</Button>}>

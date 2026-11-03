@@ -121,6 +121,7 @@ DEFAULT_SETTINGS = {
                       "api_failure": True, "backup": True},
     "backups": {"enabled": True, "interval_hours": 24, "keep": 14},
     "summary": {"enabled": True, "recipient": "leon.tex610@gmail.com", "hour": 8},
+    "website_discovery": {"enabled": True, "confirm_threshold": 70, "review_threshold": 40, "cache_days": 90},
 }
 SECRET_FIELDS = {("resend", "api_key"), ("resend", "webhook_secret"), ("imap", "password")}
 
@@ -218,3 +219,6 @@ async def create_indexes():
     await db.contacts.create_index([("business_id", 1), ("value", 1)], unique=True)
     await db.users.create_index("email", unique=True)
     await db.drafts.create_index("business_id")
+    await db.website_lookups.create_index("business_id", unique=True)
+    await db.website_lookups.create_index("key")
+    await db.api_usage.create_index("created_at")

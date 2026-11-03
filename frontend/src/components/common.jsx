@@ -37,6 +37,8 @@ const STATUS_TONE = {
   stopped: "bad", failed: "bad", bounced: "bad", complained: "bad", ineligible: "bad", blocked: "bad", unsubscribed: "bad",
   no_website: "warn", no_website_listed: "warn", website_unavailable: "bad", social_media_only: "warn", under_construction: "warn",
   test_dry_run: "muted", test_sent: "info", searching: "info", needs_research: "warn", send_failed: "bad",
+  no_website_found: "warn", website_unverified: "warn", website_not_verified: "muted", needs_review: "warn", found: "good",
+  not_found: "warn", search_unavailable: "muted", rejected_by_user: "muted", search_requested: "info",
 };
 
 export const StatusBadge = ({ status, tone, testid }) => (

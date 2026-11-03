@@ -8,10 +8,10 @@ import { PageHeader, GradeBadge, StatusBadge, RepliedTag, Empty } from "@/compon
 import { api, authUrl, errMsg, fmtDate } from "@/lib/api";
 
 const OPTS = {
-  website_status: ["website_exists", "no_website", "no_website_listed", "social_media_only", "website_unavailable", "under_construction"],
+  website_status: ["website_exists", "website_unverified", "no_website_found", "website_not_verified", "no_website", "no_website_listed", "social_media_only", "website_unavailable", "under_construction"],
   grade: ["A", "B", "C", "D"],
   research_status: ["pending", "assessing", "assessed", "failed"],
-  email_status: ["none", "draft", "approved", "sent", "test_sent", "delivered", "bounced", "replied", "unsubscribed", "no_contact", "not_qualified"],
+  email_status: ["none", "needs_review", "draft", "approved", "sent", "test_sent", "delivered", "bounced", "replied", "unsubscribed", "no_contact", "not_qualified"],
   reply_status: ["none", "replied", "out_of_office"],
 };
 

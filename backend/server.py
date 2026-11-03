@@ -15,7 +15,7 @@ from pydantic import BaseModel
 import httpx
 from svix.webhooks import Webhook, WebhookVerificationError
 from core import (db, uid, iso, log, clean, get_settings, ensure_settings, create_indexes, audit, notify, activity,
-                  encrypt, SECRET_FIELDS, SCREENSHOT_DIR, BACKUP_DIR, add_suppression, USER_AGENT, DEFAULT_SETTINGS)
+                  encrypt, SECRET_FIELDS, SCREENSHOT_DIR, BACKUP_DIR, add_suppression, USER_AGENT, DEFAULT_SETTINGS, norm_domain)
 from discovery import resolve_region, filter_zones, CATEGORY_TAGS, overpass, geocode
 from ai import call_ai, parse_json, ai_configured, AIError
 from assess import generate_draft, services_catalogue, check_eligibility
@@ -461,6 +461,7 @@ async def prospect_detail(bid: str, user=Depends(require_admin)):
             "events": await db.discovery_events.find({"business_id": bid}, p).sort("created_at", -1).to_list(50),
             "audit": await db.audit.find({"entity_id": bid}, p).sort("created_at", -1).to_list(50),
             "siblings": sib,
+            "website_lookup": await db.website_lookups.find_one({"business_id": bid}, p),
             "suppressed": await db.suppressions.find_one({"type": "business", "value": bid}, p)}
 
 
@@ -486,6 +487,93 @@ async def reassess(bid: str, user=Depends(require_admin)):
         raise HTTPException(404, "Not found")
     await audit("reassess_requested", "business", bid, actor=user["email"])
     return {"ok": True}
+
+
+class WebsiteIn(BaseModel):
+    url: str = ""
+
+
+async def _biz(bid):
+    b = await db.businesses.find_one({"id": bid}, {"_id": 0})
+    if not b:
+        raise HTTPException(404, "Not found")
+    return b
+
+
+@api.post("/prospects/{bid}/website/confirm")
+async def confirm_website(bid: str, body: WebsiteIn, user=Depends(require_admin)):
+    from website_finder import apply_found, blocked
+    b = await _biz(bid)
+    url = body.url.strip()
+    if not re.match(r"^https?://[^\s/]+\.[^\s]+", url if url.startswith("http") else f"https://{url}"):
+        raise HTTPException(400, "Enter a valid website address")
+    url = url if url.startswith("http") else f"https://{url}"
+    if blocked(norm_domain(url)):
+        raise HTTPException(400, "That is a directory or social media site, not the business's own website")
+    await apply_found(b, url, "manual_confirmation", 100, user["email"])
+    await db.website_lookups.update_one({"business_id": bid}, {"$set": {"status": "found", "chosen_url": url, "chosen_domain": norm_domain(url),
+                                                                     "confidence": 100, "source": "manual_confirmation", "confirmed_by": user["email"], "confirmed_at": iso()},
+                                                            "$setOnInsert": {"id": uid(), "key": "", "candidates": [], "searched_at": iso()}}, upsert=True)
+    await db.businesses.update_one({"id": bid}, {"$set": {"research_status": "refresh_requested", "attempts": 0}})
+    return {"ok": True}
+
+
+@api.post("/prospects/{bid}/website/reject")
+async def reject_website(bid: str, user=Depends(require_admin)):
+    b = await _biz(bid)
+    lk = await db.website_lookups.find_one({"business_id": bid}, {"_id": 0}) or {}
+    doms = sorted(set(lk.get("rejected_domains", [])) | {c["domain"] for c in lk.get("candidates", [])} | ({b["domain"]} if b.get("website_source") and b.get("domain") else set()))
+    await db.website_lookups.update_one({"business_id": bid}, {"$set": {"status": "rejected_by_user", "rejected_domains": doms, "chosen_url": None,
+                                                                     "chosen_domain": None, "confirmed_by": user["email"], "confirmed_at": iso()},
+                                                            "$setOnInsert": {"id": uid(), "key": "", "candidates": [], "searched_at": iso()}}, upsert=True)
+    upd = {"research_status": "refresh_requested", "attempts": 0}
+    if b.get("website_source"):
+        upd.update({"website": "", "domain": "", "website_source": None, "website_confidence": None})
+    await db.businesses.update_one({"id": bid}, {"$set": upd})
+    await audit("website_rejected", "business", bid, {"domains": doms}, user["email"])
+    return {"ok": True}
+
+
+@api.post("/prospects/{bid}/website/search")
+async def search_website_again(bid: str, user=Depends(require_admin)):
+    b = await _biz(bid)
+    if b.get("website") and not b.get("website_source"):
+        raise HTTPException(400, "This business already has a website from its listing")
+    await db.website_lookups.update_one({"business_id": bid}, {"$set": {"stale": True, "status": "search_requested"}})
+    upd = {"research_status": "refresh_requested", "attempts": 0}
+    if b.get("website_source") and b["website_source"] != "manual_confirmation":
+        upd.update({"website": "", "domain": ""})
+    await db.businesses.update_one({"id": bid}, {"$set": upd})
+    await audit("website_search_requested", "business", bid, actor=user["email"])
+    return {"ok": True}
+
+
+@api.post("/website-discovery/recheck")
+async def website_recheck(user=Depends(require_admin)):
+    if not os.environ.get("SERPER_API_KEY") and not os.environ.get("BRAVE_API_KEY"):
+        raise HTTPException(400, "Add a Serper or Brave search key first")
+    f = {"excluded": False, "website": {"$in": ["", None]}, "research_status": {"$in": ["assessed", "failed"]},
+         "website_status": {"$in": ["no_website", "no_website_listed", "website_not_verified", "social_media_only"]},
+         "email_status": {"$nin": ["sent", "delivered", "replied", "bounced", "unsubscribed"]}}
+    r = await db.businesses.update_many(f, {"$set": {"research_status": "refresh_requested", "attempts": 0}})
+    await audit("website_recheck_started", "businesses", None, {"count": r.modified_count}, user["email"])
+    await activity("website_search", f"Website re-check queued for {r.modified_count} prospect(s) with no website listed", level="success")
+    return {"queued": r.modified_count}
+
+
+async def website_discovery_stats():
+    month = iso()[:7]
+    usage = await db.api_usage.aggregate([{"$match": {"created_at": {"$gte": month}}},
+                                          {"$group": {"_id": "$provider", "n": {"$sum": 1}, "c": {"$sum": "$cost_usd_est"}}}]).to_list(10)
+    status = await db.website_lookups.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]).to_list(10)
+    pending = await db.businesses.count_documents({"website": {"$in": ["", None]}, "research_status": {"$in": ["refresh_requested", "pending", "assessing"]}})
+    return {"usage_month": {u["_id"]: {"queries": u["n"], "cost_usd": round(u["c"], 3)} for u in usage},
+            "results": {x["_id"]: x["n"] for x in status}, "queued": pending}
+
+
+@api.get("/website-discovery/stats")
+async def website_stats(user=Depends(require_admin)):
+    return await website_discovery_stats()
 
 
 class ExcludeIn(BaseModel):
@@ -952,7 +1040,7 @@ async def read_settings(user=Depends(require_admin)):
 @api.put("/settings/{section}")
 async def write_settings(section: str, request: Request, user=Depends(require_admin)):
     body = await request.json()
-    if section not in ("sender", "sending", "compliance", "scoring", "research", "imap", "resend", "notifications", "backups", "summary", "overpass_endpoints"):
+    if section not in ("sender", "sending", "compliance", "scoring", "research", "imap", "resend", "notifications", "backups", "summary", "overpass_endpoints", "website_discovery"):
         raise HTTPException(400, "Unknown section")
     if section == "overpass_endpoints":
         await db.settings.update_one({"_id": "app"}, {"$set": {"overpass_endpoints": [str(x) for x in body.get("value", []) if x]}})
@@ -996,7 +1084,9 @@ async def integrations_status(user=Depends(require_admin)):
             "resend_webhook": {"configured": bool(s["resend"]["webhook_secret"]), "url": f"{public_url()}/api/webhooks/resend", "last_event": last_hook},
             "imap": {"configured": bool(s["imap"]["username"] and s["imap"]["password"]), "enabled": s["imap"]["enabled"], "health": imap_h},
             "overpass": {"configured": True, "endpoints": s["overpass_endpoints"]}, "nominatim": {"configured": True},
-            "screenshots": {"configured": pw}}
+            "screenshots": {"configured": pw},
+            "serper": {"configured": bool(os.environ.get("SERPER_API_KEY"))}, "brave": {"configured": bool(os.environ.get("BRAVE_API_KEY"))},
+            "website_discovery": await website_discovery_stats()}
 
 
 @api.post("/integrations/test/{name}")
@@ -1035,6 +1125,15 @@ async def integration_test(name: str, user=Depends(require_admin)):
                 br = await p.chromium.launch(args=["--no-sandbox"])
                 await br.close()
             msg = "Browser engine available"
+        elif name in ("serper", "brave"):
+            from website_finder import serper, brave
+            if not os.environ.get("SERPER_API_KEY" if name == "serper" else "BRAVE_API_KEY"):
+                raise ValueError("API key not set")
+            if name == "serper":
+                n = len((await serper("search", "Bright Coda Lilydale", None)).get("organic", []))
+            else:
+                n = len((await brave("Bright Coda Lilydale", None)).get("web", {}).get("results", []))
+            msg = f"Search OK: {n} results returned"
         else:
             raise HTTPException(400, "Unknown integration")
         ok = True
