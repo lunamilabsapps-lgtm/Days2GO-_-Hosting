@@ -31,8 +31,8 @@ Additional requirements: multiple campaigns; a permanent exclusion/suppression l
 - P1: Email follow-up sequences (follow_up_status exists, no automatic follow-ups are sent); additional discovery source adapters (licensed directories / search APIs); shadcn Select restyle.
 - P2: Resend inbound webhook as an alternative to IMAP; per-search cost dashboard charts.
 
-- Proposed 2026-11-03 (awaiting approval): website discovery when OSM has no website. Serper Google search (web, then places endpoint) as primary, Brave as fallback, homepage verification scoring (name/phone/suburb/address), confidence + source stored, manual-verification state, cache per business, backfill of existing No Website prospects. Est. 23-33h. AI Voice Agent proposal parked by user.
+- 2026-11-03 BUILT & tested (iteration_3): website discovery (website_finder.py) when OSM has no website. Serper Google search (web, then places endpoint) as primary, Brave as fallback, homepage verification scoring (name/phone/suburb/address), confidence + source stored, manual-verification state, cache per business, backfill of existing No Website prospects. Est. 23-33h. AI Voice Agent proposal parked by user.
 
 ## Next tasks
-- Await user approval of the website discovery proposal (then request SERPER_API_KEY / BRAVE_API_KEY via the secrets card).
+- User skipped SERPER_API_KEY / BRAVE_API_KEY: until added, no-website prospects show 'Website not verified' (no drafts). After keys: Integrations > Re-check all No website prospects (117 queued candidates).
 - User to enter the Resend key, webhook secret, IMAP mailbox, sender identity and compliance confirmations, then run a test campaign.

@@ -72,7 +72,7 @@ export default function ProspectDetail() {
     try { await api.patch(`/prospects/${id}`, { notes, ...extra }); toast.success("Saved"); load(); } catch (e) { toast.error(errMsg(e)); }
   };
   const draft = d.drafts.find((x) => x.status !== "superseded");
-  const review = b.website_status === "website_unverified";
+  const review = ["website_unverified", "website_not_verified"].includes(b.website_status);
   return (
     <div className="space-y-6">
       <PageHeader eyebrow={<Link to="/prospects" className="hover:text-primary">← Prospects</Link>} title={b.name}
@@ -108,7 +108,7 @@ export default function ProspectDetail() {
         </Section>
       </div>
       <Tabs defaultValue={review ? "website" : "assessment"}>
-        <TabsList className="flex-wrap">
+        <TabsList className="h-auto flex-wrap">
           {["assessment", "website", "visabal", "email", "contacts", "outreach", "history"].map((t) => <TabsTrigger key={t} value={t} data-testid={`detail-tab-${t}`} className="capitalize">{t === "assessment" ? "Opportunity report" : t === "visabal" ? "Visabal brief" : t === "website" ? "Website search" : t}</TabsTrigger>)}
         </TabsList>
         <TabsContent value="visabal"><Section title="Research brief for Visabal" right={<Button size="sm" variant="outline" data-testid="visabal-copy-button" onClick={async () => { try { const r = await api.get(`/prospects/${id}/visabal-brief`); await navigator.clipboard.writeText(r.data.text); setBrief(r.data.text); toast.success("Brief copied — paste it into Visabal"); } catch (e) { toast.error(errMsg(e)); } }}>Copy brief</Button>}>

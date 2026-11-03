@@ -1,0 +1,40 @@
+{
+  "summary": "Tested the tiered website discovery feature on backend and frontend; there are no Serper or Brave keys. Backend: 13/13 read-only checks passed before mutation. (1) The Burwood Cannings lookup was needs_review with candidate canningsfreerangebutchers.com.au -> final_url canningsbutchers.com.au/, score 55, source existing_scout_record, website_status website_unverified and email_status needs_review. (2) integrations/status: serper and brave configured=false, plus website_discovery stats. (3) Both test endpoints return ok:false 'API key not set'. (4) recheck returns 400 'Add a Serper or Brave search key first'. (5) confirm returns 400 for facebook.com and for 'not a url', '', 'https://nodot' and 'ftp//x'. (6) A request without a token returns 401/403, and an unknown business returns 404. Mutating flow on Burwood only: reject -> rejected_by_user (rejected_domains=[canningsfreerangebutchers.com.au]); search again -> search_requested and refresh_requested; the worker re-ran within about 5s. The lookup did NOT return to needs_review: it became search_unavailable / website_not_verified because the rejected domain stays excluded. Confirm through the UI's manual input with https://canningsbutchers.com.au -> website set, website_source manual_confirmation, confidence 100, refresh_requested; the worker then gave research_status assessed and website_status website_exists, and found contact sam@canningsbutchers.com.au. Frontend: the Website search tab opens by default for website_unverified; the panel, status badge, candidate card (55/100 and signals), confirm, manual input/save (disabled when empty), search again and reject-all are all present. An invalid manual URL shows an error toast. After confirm, detail-website-link and detail-website-source ('confirmed by you · confidence 100') show. The Prospects filter has the 3 new options, and filtering to website_unverified works. On Integrations, the Serper and Brave cards show 'Setup Required', the recheck button is disabled and the cost text reads '0 searches · about US$0.00'. Mobile at 390px has no horizontal overflow, but the tab bar overlaps the content. No JS page errors.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/prospects/{bid}/website/search after /reject", "issue": "The review expected the lookup to return to needs_review from existing data. In fact rejected_domains persists, so tier 1 skips canningsfreerangebutchers.com.au and the result is search_unavailable / website_not_verified. This is arguably correct, since it respects the user's rejection. If 'Search again' should reconsider rejected candidates, clear rejected_domains in search_website_again or pass force. Decide which behaviour you want and make the UI copy match."},
+      {"endpoint": "assess.assess_business (draft stage robustness)", "issue": "research_status='assessed' is written BEFORE draft generation and the email_status update. My test-file creation under /app/backend/tests triggered a uvicorn reload while the worker was in 'Generating personalised email'. Burwood is now left with website_status website_exists, research_status assessed, no draft and a STALE email_status 'needs_review'. The worker never retries it. Fix: set the email_status for the email stage first, or mark research as assessed only after the draft step finishes, or run a startup sweep for this state. The USER or main agent should click Reassess on Burwood to produce the normal draft. Note that sending.test_mode is currently FALSE; the only campaign is autonomous but 'completed'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "ProspectDetail TabsList (mobile 390px)", "issue": "The 7 tab triggers wrap onto 3 lines but the TabsList keeps a fixed height. 'Visabal Brief / Email / Contacts / Outreach / History' spill over the 'Website discovery' card heading. Use h-auto with flex-wrap, or overflow-x-auto with a horizontal scroll.", "selector": "[data-testid=detail-tab-website] parent", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Prospect detail / Website search", "issues": ["The Website tab opens by default only for website_unverified. Consider opening it for website_not_verified too, since that status is also actionable.", "After a manual confirm, the lookup header still reads 'Searched … · existing data · confidence 100'. Show 'Confirmed by you <date>' instead.", "The business-details badge shows the stale 'Website Not Verified' until reassessment finishes. This is acceptable, but a 'reassessing' hint would help."]},
+      {"screen": "Global", "issues": ["Native <select> elements are still used for the filters (carried over)."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_website_discovery.py", "/app/backend/tests/poll_burwood.py", "/app/test_reports/pytest/pytest_website_discovery.xml"],
+  "action_items": [
+    "Burwood Cannings: click Reassess (or set research_status refresh_requested) so a draft or the correct email_status is produced. It is currently stale at needs_review because a reload interrupted the assessment.",
+    "Make assess_business resilient to interruption between 'assessed' and the draft/email_status step",
+    "Decide whether 'Search again' after a reject should reconsider rejected domains (currently it does not, so the result is website_not_verified)",
+    "Fix the TabsList overlap at mobile 390px on the prospect detail page"
+  ],
+  "critical_code_review_comments": [
+    "server.py is about 1320 lines; split it into routers (website discovery endpoints could live in their own module)",
+    "find_website: `cached = prev or <key lookup>`. When this business's own lookup exists but is stale or expired, the cross-business cache by key is never consulted.",
+    "confirm_website validation is regex-only. 'https://nodot' is rejected (good), but URLs are not normalised: trailing slashes and the www./non-www difference can create different stored website values.",
+    "Writing any .py file under /app/backend (including tests) reloads uvicorn and kills in-flight worker jobs. Consider excluding tests/ from --reload-dir."
+  ],
+  "updated_files": ["/app/backend/tests/test_website_discovery.py", "/app/backend/tests/poll_burwood.py"],
+  "success_rate": {"backend": "13/13 read-only checks passed before mutation, plus the reject/search/confirm flow. 1 expectation deviated (search again -> website_not_verified, not needs_review). The final email_status is stale because of an interrupted run.", "frontend": "~95% (1 mobile tab-overlap bug)"},
+  "test_credentials": "Admin leon.tex610@gmail.com / 7KVpKVjP6G_VuXK1 (from tests/conftest.py; /app/memory/test_credentials.md is still an EMPTY template, so fill it in)",
+  "seed_data_creation": "None. Only Burwood Cannings (da6febe2-09de-4797-b391-b2769beaa310) was changed. End state: website https://canningsbutchers.com.au, website_source manual_confirmation, confidence 100, lookup status found, website_status website_exists, research_status assessed, email_status needs_review (stale), no drafts. Audit entries were added for website_rejected, website_search_requested and website_assigned.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend/tests && python -m pytest test_website_discovery.py -k TestReadOnly -n0 (pytest.ini adds xdist, so pass -n0). test_burwood_lookup now fails by design because Burwood is confirmed (status found). Do NOT re-run TestFlow on real data without good reason. Avoid creating .py files under /app/backend while the worker is running, because it causes a reload. sending.test_mode is false."
+}

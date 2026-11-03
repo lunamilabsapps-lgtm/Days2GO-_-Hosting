@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="0" tests="13" time="1.680" timestamp="2026-11-03T04:09:16.537145+00:00" hostname="agent-env-17bc57fe-e032-4fa4-a076-094e35e4aef7"><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_burwood_lookup" time="0.563"><failure message="AssertionError: assert ({'business_id': 'da6febe2-09de-4797-b391-b2769beaa310', 'candidates': [], 'chosen_domain': 'canningsbutchers.com.au', 'chosen_url': 'https://canningsbutchers.com.au', ...} and 'found' == 'needs_review'&#10;  &#10;  - needs_review&#10;  + found)">self = &lt;test_website_discovery.TestReadOnly object at 0xf8e8647472d0&gt;
+client = &lt;requests.sessions.Session object at 0xf8e8637ff4d0&gt;
+
+    def test_burwood_lookup(self, client):
+        d = get_p(client)
+        lk = d.get("website_lookup")
+        print("lookup:", {k: lk.get(k) for k in ("status", "confidence", "source", "tiers", "errors")} if lk else None)
+        print("business:", {k: d["business"].get(k) for k in ("website", "website_status", "email_status", "research_status", "website_source")})
+&gt;       assert lk and lk["status"] == "needs_review"
+E       AssertionError: assert ({'business_id': 'da6febe2-09de-4797-b391-b2769beaa310', 'candidates': [], 'chosen_domain': 'canningsbutchers.com.au', 'chosen_url': 'https://canningsbutchers.com.au', ...} and 'found' == 'needs_review'
+E         
+E         - needs_review
+E         + found)
+
+test_website_discovery.py:24: AssertionError</failure></testcase><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_integrations_status" time="0.083" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_serper_test" time="0.086" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_brave_test" time="0.078" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_stats" time="0.094" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_recheck_blocked" time="0.083" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_confirm_rejects_facebook" time="0.092" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_confirm_rejects_invalid[not a url]" time="0.085" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_confirm_rejects_invalid[]" time="0.089" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_confirm_rejects_invalid[https://nodot]" time="0.075" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_confirm_rejects_invalid[ftp//x]" time="0.094" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_unauth" time="0.137" /><testcase classname="tests.test_website_discovery.TestReadOnly" name="test_404" time="0.074" /></testsuite></testsuites>

@@ -539,7 +539,7 @@ async def search_website_again(bid: str, user=Depends(require_admin)):
     b = await _biz(bid)
     if b.get("website") and not b.get("website_source"):
         raise HTTPException(400, "This business already has a website from its listing")
-    await db.website_lookups.update_one({"business_id": bid}, {"$set": {"stale": True, "status": "search_requested"}})
+    await db.website_lookups.update_one({"business_id": bid}, {"$set": {"stale": True, "status": "search_requested", "rejected_domains": []}})
     upd = {"research_status": "refresh_requested", "attempts": 0}
     if b.get("website_source") and b["website_source"] != "manual_confirmation":
         upd.update({"website": "", "domain": ""})

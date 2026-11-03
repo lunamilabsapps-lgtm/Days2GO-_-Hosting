@@ -339,7 +339,7 @@ async def assess_business(b, search, slot):
     await db.lead_scores.insert_one({"id": uid(), "business_id": b["id"], "assessment_id": a["id"], "score": score,
                                      "grade": grade, "factors": factors, "weights": s["scoring"]["weights"], "created_at": iso()})
     await db.businesses.update_one({"id": b["id"]}, {"$set": {
-        "research_status": "assessed", "website_status": pres, "assessment_id": a["id"], "score": score, "grade": grade,
+        "website_status": pres, "assessment_id": a["id"], "score": score, "grade": grade,
         "last_assessed_at": iso(), "primary_email": next((c["value"] for c in contacts if c.get("type") == "email" and c.get("role_based")),
                                                          next((c["value"] for c in contacts if c.get("type") == "email"), None))}})
     await audit("website_assessed", "business", b["id"], {"presence": pres, "score": score, "grade": grade})
@@ -367,6 +367,7 @@ async def assess_business(b, search, slot):
         await db.businesses.update_one({"id": b["id"]}, {"$set": {"email_status": "needs_review" if unverified else "no_contact" if not email_contacts else "not_qualified"}})
         await stage("skipping_email", email_status=reason)
         await activity("skip_email", f"No email prepared: {reason}", b, b.get("_sid"), slot=slot)
+    await db.businesses.update_one({"id": b["id"]}, {"$set": {"research_status": "assessed"}})
     return a
 
 

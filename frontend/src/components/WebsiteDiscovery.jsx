@@ -40,7 +40,7 @@ export default function WebsiteDiscovery({ bid, lookup, business, onChange }) {
       {lookup ? (
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <StatusBadge status={lookup.status} testid="website-lookup-status" />
-          <span className="text-muted-foreground">Searched {fmtDate(lookup.searched_at)}{lookup.tiers?.length ? ` · ${lookup.tiers.map(label).join(" → ")}` : ""}{lookup.confidence ? ` · confidence ${lookup.confidence}` : ""}</span>
+          <span className="text-muted-foreground">{lookup.confirmed_by && lookup.status === "found" ? `Confirmed by you ${fmtDate(lookup.confirmed_at)}` : `Searched ${fmtDate(lookup.searched_at)}${lookup.tiers?.length ? ` · ${lookup.tiers.map(label).join(" → ")}` : ""}`}{lookup.confidence ? ` · confidence ${lookup.confidence}` : ""}</span>
         </div>
       ) : <p className="text-muted-foreground">{listed ? "Website taken from the business listing — no search needed." : "No website search has run yet."}</p>}
       {lookup?.errors?.length > 0 && <div className="rounded-md bg-red-500/10 p-2 text-xs text-red-500">{lookup.errors.join("; ")}</div>}
