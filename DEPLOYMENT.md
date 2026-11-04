@@ -70,6 +70,8 @@ Open `https://<APP_DOMAIN>` and sign in with `ADMIN_EMAIL` / `ADMIN_PASSWORD`.
 | Resend webhook signing secret | Integrations screen |
 | Hostinger IMAP mailbox credentials | Integrations screen |
 | OpenStreetMap (Nominatim/Overpass) | No key; public endpoints configurable in DB settings |
+| `SERPER_API_KEY` | `.env` — Google search / Google Maps lookup for websites and phone numbers missing from OpenStreetMap |
+| `BRAVE_API_KEY` | `.env` — optional fallback web search |
 
 ## 5. Updating
 ```bash

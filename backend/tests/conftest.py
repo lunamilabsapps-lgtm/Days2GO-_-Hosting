@@ -7,8 +7,8 @@ from pymongo import MongoClient
 load_dotenv("/app/frontend/.env")
 load_dotenv("/app/backend/.env")
 BASE_URL = os.environ["REACT_APP_BACKEND_URL"].rstrip("/")
-ADMIN_EMAIL = "leon.tex610@gmail.com"
-ADMIN_PASSWORD = "7KVpKVjP6G_VuXK1"
+ADMIN_EMAIL = os.environ["ADMIN_EMAIL"]
+ADMIN_PASSWORD = os.environ["ADMIN_PASSWORD"]
 
 
 @pytest.fixture(scope="session")

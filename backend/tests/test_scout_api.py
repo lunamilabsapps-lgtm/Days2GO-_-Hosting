@@ -52,8 +52,8 @@ def seed(mdb):
 # ---------- auth ----------
 class TestAuth:
     def test_login_ok(self):
-        r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": "leon.tex610@gmail.com", "password": "7KVpKVjP6G_VuXK1"})
-        assert r.status_code == 200 and r.json()["token"] and r.json()["user"]["email"] == "leon.tex610@gmail.com"
+        r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": os.environ["ADMIN_EMAIL"], "password": os.environ["ADMIN_PASSWORD"]})
+        assert r.status_code == 200 and r.json()["token"] and r.json()["user"]["email"] == os.environ["ADMIN_EMAIL"].lower()
 
     def test_login_wrong(self):
         r = requests.post(f"{BASE_URL}/api/auth/login", json={"email": f"TEST_wrong_{TAG}@example.com", "password": "x"})
