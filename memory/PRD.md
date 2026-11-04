@@ -34,5 +34,5 @@ Additional requirements: multiple campaigns; a permanent exclusion/suppression l
 - 2026-11-03 BUILT & tested (iteration_3): website discovery (website_finder.py) when OSM has no website. Serper Google search (web, then places endpoint) as primary, Brave as fallback, homepage verification scoring (name/phone/suburb/address), confidence + source stored, manual-verification state, cache per business, backfill of existing No Website prospects. Est. 23-33h. AI Voice Agent proposal parked by user.
 
 ## Next tasks
-- User skipped SERPER_API_KEY / BRAVE_API_KEY: until added, no-website prospects show 'Website not verified' (no drafts). After keys: Integrations > Re-check all No website prospects (117 queued candidates).
+- User skipped SERPER_API_KEY / BRAVE_API_KEY at first; keys added 2026-11-04, both tested OK. Re-check of 174 prospects done: 17 found, 31 needs manual check, 127 not found; ~371 searches ≈ US$0.48.
 - User to enter the Resend key, webhook secret, IMAP mailbox, sender identity and compliance confirmations, then run a test campaign.

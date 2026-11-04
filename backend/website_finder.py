@@ -20,7 +20,13 @@ BLOCKED = ("facebook.com", "instagram.com", "linktr.ee", "tiktok.com", "youtube.
            "word-of-mouth.com.au", "oneflare.com.au", "hipages.com.au", "airtasker.com", "nearmap.com", "mapquest.com",
            "cylex.com.au", "aussieweb.com.au", "brownbook.net", "infobel.com", "waze.com", "apple.com", "bing.com",
            "realestate.com.au", "domain.com.au", "squareup.com", "fresha.com", "opentable.com.au", "opentable.com",
-           "foursquare.com", "restaurantguru.com", "wanderlog.com", "groupon.com.au", "linktree.com")
+           "foursquare.com", "restaurantguru.com", "wanderlog.com", "groupon.com.au", "linktree.com",
+           "theage.com.au", "smh.com.au", "heraldsun.com.au", "news.com.au", "abc.net.au", "theguardian.com",
+           "concreteplayground.com", "urbanlist.com", "theurbanlist.com", "foodbyus.com.au", "wanderboat.ai",
+           "poi-australia.com.au", "factoryoutletshopping.com.au", "au.trip.com", "trip.com", "mapcarta.com",
+           "localfind.com.au", "yably.com.au", "finda.com.au", "dlook.com.au", "au.indeed.com", "jora.com",
+           "glassdoor.com.au", "reddit.com", "whatsonmelbourne.com.au", "onlymelbourne.com.au", "visitmelbourne.com",
+           "timeout.com.au", "gourmettraveller.com.au", "delicious.com.au", "goodfood.com.au", "mobi-order.com")
 GENERIC = {"butchers", "butcher", "meats", "meat", "cafe", "café", "bakery", "bakers", "restaurant", "florist", "florists",
            "hair", "salon", "beauty", "barber", "barbers", "plumbing", "plumber", "electrical", "electrician", "and", "of",
            "free", "range", "quality", "family", "fresh", "shop", "store", "melbourne", "the", "co", "pty", "ltd", "kitchen"}
@@ -70,6 +76,9 @@ def add_candidate(cands, url, provider, **info):
         return
     if not url.startswith("http"):
         url = "https://" + url
+    from urllib.parse import urlparse
+    if provider != "google_maps_via_serper" and len([x for x in urlparse(url).path.split("/") if x]) >= 2:
+        return  # deep article/listing pages are almost never the business's own homepage
     dom = norm_domain(url)
     if blocked(dom):
         return
@@ -82,11 +91,14 @@ def add_candidate(cands, url, provider, **info):
 
 
 def listing_matches(b, place):
-    title_ok = fuzz.token_set_ratio(norm_name(b["name"]), norm_name(place.get("title", ""))) >= 80
+    title_ratio = fuzz.token_set_ratio(norm_name(b["name"]), norm_name(place.get("title", "")))
+    title_ok = title_ratio >= 80
     addr = (place.get("address") or "").lower()
-    loc_ok = bool(b.get("suburb")) and b["suburb"].lower() in addr
+    pc = re.search(r"\b(\d{4})\b", b.get("address") or "")
+    street = (b.get("address") or "").split(",")[0].lower().strip()
+    loc_ok = bool(b.get("suburb")) and b["suburb"].lower() in addr or bool(pc and pc.group(1) in addr) or bool(street and len(street) > 5 and street in addr)
     phone_ok = bool(norm_phone(b.get("phone"))) and norm_phone(b.get("phone")) == norm_phone(place.get("phoneNumber"))
-    return title_ok, loc_ok, phone_ok
+    return title_ok, loc_ok, phone_ok, title_ratio >= 95
 
 
 async def page_text(url):
@@ -138,24 +150,27 @@ async def verify(b, cand):
     nm = norm_name(b["name"])
     toks = core_tokens(b["name"])
     name_ratio = fuzz.token_set_ratio(nm, norm_name(head))
-    name_hit = name_ratio >= 80 or (toks and all(t in head for t in toks))
+    name_hit = name_ratio >= 80 or (len(toks) >= 2 and all(t in head for t in toks))
     if name_hit:
         score += 25
         signals.append("business name in page title/heading")
-    elif toks and all(t in text for t in toks):
+    elif len(toks) >= 2 and all(t in text for t in toks):
         score += 10
         signals.append("business name appears in page text")
     compact = final_dom.split(".")[0].replace("-", "")
-    if toks and any(t in compact for t in toks):
+    name_compact = re.sub(r"[^a-z0-9]", "", nm)
+    dom_tok = next((t for t in toks if len(t) >= 4 and t in compact and (len(toks) >= 2 or compact.startswith(t))), None)
+    if dom_tok or (name_compact and fuzz.ratio(name_compact, compact) >= 85):
         score += 15
-        signals.append(f"domain contains '{next(t for t in toks if t in compact)}'")
+        signals.append(f"domain matches the business name")
     pn = norm_phone(b.get("phone"))
     phone_hit = bool(pn) and len(pn) >= 8 and pn[-8:] in digits
     if phone_hit:
         score += 35
         signals.append("same phone number on the website")
     loc_hit = False
-    if b.get("suburb") and b["suburb"].lower() in text:
+    if b.get("suburb") and b["suburb"].lower() not in ("melbourne", "sydney", "brisbane", "perth", "adelaide", "hobart", "darwin", "canberra") \
+            and re.search(rf"\b{re.escape(b['suburb'].lower())}\b", text):
         score += 15
         loc_hit = True
         signals.append(f"suburb '{b['suburb']}' on the website")
@@ -176,13 +191,17 @@ async def verify(b, cand):
         if lst["title_ok"] and (lst["loc_ok"] or lst["phone_ok"]):
             score += 25
             signals.append("linked from this business's Google Maps listing")
+        elif lst["title_ok"] and lst.get("exact") and lst.get("top"):
+            score += 20
+            signals.append("top Google Maps result for this name and area links to this site")
         elif lst["title_ok"]:
             score += 10
             signals.append("linked from a Google Maps listing with the same name (different location)")
+    strong_listing = bool(lst and lst.get("exact") and lst.get("top") and dom_tok and name_hit)
     if not (name_hit or phone_hit):
         score = min(score, 45)
         signals.append("held for review: neither the name nor the phone number clearly matches")
-    elif not (phone_hit or loc_hit or (lst and (lst["loc_ok"] or lst["phone_ok"]))):
+    elif not (phone_hit or loc_hit or strong_listing or (lst and (lst["loc_ok"] or lst["phone_ok"]))):
         score = min(score, 60)
         signals.append("held for review: name matches but this location or phone number isn't confirmed (possible chain or other business)")
     return min(score, 100), signals, home["final_url"]
@@ -242,10 +261,10 @@ async def find_website(b, force=False, slot=None):
             q = f"{b['name']} {loc}".strip()
             queries.append(f"serper places: {q}")
             for i, p in enumerate((await serper("places", q, b["id"])).get("places", [])[:10]):
-                t, l, ph = listing_matches(b, p)
+                t, l, ph, ex = listing_matches(b, p)
                 if p.get("website") and t:
                     add_candidate(cands, p["website"], "google_maps_via_serper", rank=i,
-                                  listing={"title": p.get("title"), "address": p.get("address"), "title_ok": t, "loc_ok": l, "phone_ok": ph})
+                                  listing={"title": p.get("title"), "address": p.get("address"), "title_ok": t, "loc_ok": l, "phone_ok": ph, "exact": ex, "top": i == 0})
             await evaluate()
             if not (best() and best()["score"] >= s["confirm_threshold"]):
                 queries.append(f"serper search: {q}")
