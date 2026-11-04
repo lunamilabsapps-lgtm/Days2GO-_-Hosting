@@ -5,7 +5,7 @@ from datetime import datetime, timedelta, timezone
 import httpx
 from rapidfuzz import fuzz
 from bs4 import BeautifulSoup
-from core import db, uid, iso, log, get_settings, norm_name, norm_phone, norm_domain, activity, audit
+from core import db, uid, iso, log, get_settings, norm_name, norm_phone, norm_domain, activity, audit, haversine_m
 from assess import fetch, robots_allowed, SOCIAL
 
 SERPER = "https://google.serper.dev"
@@ -26,7 +26,7 @@ BLOCKED = ("facebook.com", "instagram.com", "linktr.ee", "tiktok.com", "youtube.
            "poi-australia.com.au", "factoryoutletshopping.com.au", "au.trip.com", "trip.com", "mapcarta.com",
            "localfind.com.au", "yably.com.au", "finda.com.au", "dlook.com.au", "au.indeed.com", "jora.com",
            "glassdoor.com.au", "reddit.com", "whatsonmelbourne.com.au", "onlymelbourne.com.au", "visitmelbourne.com",
-           "timeout.com.au", "gourmettraveller.com.au", "delicious.com.au", "goodfood.com.au", "mobi-order.com")
+           "timeout.com.au", "gourmettraveller.com.au", "delicious.com.au", "goodfood.com.au", "mobi-order.com", "wheree.com")
 GENERIC = {"butchers", "butcher", "meats", "meat", "cafe", "café", "bakery", "bakers", "restaurant", "florist", "florists",
            "hair", "salon", "beauty", "barber", "barbers", "plumbing", "plumber", "electrical", "electrician", "and", "of",
            "free", "range", "quality", "family", "fresh", "shop", "store", "melbourne", "the", "co", "pty", "ltd", "kitchen"}
@@ -98,7 +98,11 @@ def listing_matches(b, place):
     street = (b.get("address") or "").split(",")[0].lower().strip()
     loc_ok = bool(b.get("suburb")) and b["suburb"].lower() in addr or bool(pc and pc.group(1) in addr) or bool(street and len(street) > 5 and street in addr)
     phone_ok = bool(norm_phone(b.get("phone"))) and norm_phone(b.get("phone")) == norm_phone(place.get("phoneNumber"))
-    return title_ok, loc_ok, phone_ok, title_ratio >= 95
+    near = None
+    if b.get("lat") and place.get("latitude"):
+        near = round(haversine_m(b["lat"], b["lon"], place["latitude"], place["longitude"]))
+        loc_ok = loc_ok or near <= 1500
+    return title_ok, loc_ok, phone_ok, title_ratio >= 95, near
 
 
 async def page_text(url):
@@ -130,19 +134,29 @@ async def verify(b, cand):
     if blocked(final_dom):
         return 0, [f"redirects to a directory/social site ({final_dom})"], None
     pages = [home]
+    slug = re.sub(r"[^a-z0-9]+", "-", (b.get("suburb") or "").lower()).strip("-")
+    from urllib.parse import urljoin
+    seen, ranked = {home["final_url"].rstrip("/")}, []
     for l in home["links"]:
-        if re.search(r"contact|location|store|find-us|about|visit", l or "", re.I):
-            from urllib.parse import urljoin
-            u = urljoin(home["final_url"], l)
-            if norm_domain(u) == final_dom and u.rstrip("/") != home["final_url"].rstrip("/"):
-                try:
-                    p = await page_text(u)
-                    if p:
-                        pages.append(p)
-                except Exception:
-                    pass
-                if len(pages) >= 3:
-                    break
+        u = urljoin(home["final_url"], l or "").split("#")[0]
+        if norm_domain(u) != final_dom or u.rstrip("/") in seen:
+            continue
+        seen.add(u.rstrip("/"))
+        if slug and slug in u.lower():
+            ranked.append((0, u))
+        elif re.search(r"location|store|branch|find-us|our-shops|shops|stockist", u, re.I):
+            ranked.append((1, u))
+        elif re.search(r"contact|about|visit", u, re.I):
+            ranked.append((2, u))
+    for _, u in sorted(ranked)[:6]:
+        try:
+            p = await page_text(u)
+            if p:
+                pages.append(p)
+                if slug and slug in u.lower() and slug not in home["final_url"].lower():
+                    pages[-1]["branch_page"] = u
+        except Exception:
+            pass
     text = " ".join(p["text"] for p in pages)
     digits = "".join(p["html_digits"] for p in pages)
     head = f"{home['title']} {home['h1']}".lower()
@@ -183,14 +197,22 @@ async def verify(b, cand):
     if pc and pc.group(1) in text:
         score += 5
         signals.append(f"postcode {pc.group(1)} on the website")
+    lst = cand.get("listing")
+    branch = next((p["branch_page"] for p in pages if p.get("branch_page")), None)
+    if branch and loc_hit:
+        signals.append(f"branch page found: {branch}")
+    m = re.match(r"\s*(?:shop\s*\S+,?\s*)?(\d+[a-z]?)\s*/?\s*\d*\s+([a-z']+)", ((lst or {}).get("address") or "").lower())
+    if m and lst and lst["title_ok"] and re.search(rf"\b{m.group(1)}\s+{re.escape(m.group(2))}\b", text):
+        score += 20
+        loc_hit = True
+        signals.append(f"Google Maps address ({m.group(1)} {m.group(2).title()}) listed on the website")
     if home["ld"] and nm and fuzz.partial_ratio(nm, home["ld"]) >= 90:
         score += 10
         signals.append("business name in the site's structured business data")
-    lst = cand.get("listing")
     if lst:
         if lst["title_ok"] and (lst["loc_ok"] or lst["phone_ok"]):
             score += 25
-            signals.append("linked from this business's Google Maps listing")
+            signals.append("linked from this business's Google Maps listing" + (f" ({lst['near_m']} m from the mapped location)" if lst.get("near_m") is not None else ""))
         elif lst["title_ok"] and lst.get("exact") and lst.get("top"):
             score += 20
             signals.append("top Google Maps result for this name and area links to this site")
@@ -198,13 +220,26 @@ async def verify(b, cand):
             score += 10
             signals.append("linked from a Google Maps listing with the same name (different location)")
     strong_listing = bool(lst and lst.get("exact") and lst.get("top") and dom_tok and name_hit)
-    if not (name_hit or phone_hit):
+    if not (name_hit or dom_tok):
+        score = min(score, 45)
+        signals.append("held for review: the site doesn't carry the business's name (could be a shopping centre or parent company site)")
+    elif not (name_hit or phone_hit):
         score = min(score, 45)
         signals.append("held for review: neither the name nor the phone number clearly matches")
     elif not (phone_hit or loc_hit or strong_listing or (lst and (lst["loc_ok"] or lst["phone_ok"]))):
         score = min(score, 60)
         signals.append("held for review: name matches but this location or phone number isn't confirmed (possible chain or other business)")
     return min(score, 100), signals, home["final_url"]
+
+
+async def save_maps_phone(b, maps):
+    pn = norm_phone(maps.get("phone"))
+    if not pn or b.get("phone_norm"):
+        return
+    upd = {"phone": maps["phone"], "phone_norm": pn, "phone_source": "google_maps_via_serper", "phone_found_at": iso()}
+    await db.businesses.update_one({"id": b["id"]}, {"$set": upd})
+    await audit("phone_saved", "business", b["id"], {"phone": maps["phone"], "source": "Google Maps listing", "listing": maps.get("title")})
+    b.update(upd)
 
 
 async def find_website(b, force=False, slot=None):
@@ -225,7 +260,7 @@ async def find_website(b, force=False, slot=None):
             await activity("website_search", f"Website search result reused from cache ({cached['status'].replace('_', ' ')})", b, sid, slot=slot)
             return cached
     sk, bk = keys()
-    cands, tiers, queries, errors = {}, [], [], []
+    cands, tiers, queries, errors, maps = {}, [], [], [], None
     rejected = set((prev or {}).get("rejected_domains", []))
     # tier 1: existing business data
     q1 = [{"name_norm": b.get("name_norm") or norm_name(b["name"])}]
@@ -261,10 +296,14 @@ async def find_website(b, force=False, slot=None):
             q = f"{b['name']} {loc}".strip()
             queries.append(f"serper places: {q}")
             for i, p in enumerate((await serper("places", q, b["id"])).get("places", [])[:10]):
-                t, l, ph, ex = listing_matches(b, p)
+                t, l, ph, ex, near = listing_matches(b, p)
+                if t and (l or ph) and not maps:
+                    maps = {"title": p.get("title"), "address": p.get("address"), "phone": p.get("phoneNumber"),
+                            "website": p.get("website"), "near_m": near, "cid": p.get("cid")}
+                    await save_maps_phone(b, maps)
                 if p.get("website") and t:
                     add_candidate(cands, p["website"], "google_maps_via_serper", rank=i,
-                                  listing={"title": p.get("title"), "address": p.get("address"), "title_ok": t, "loc_ok": l, "phone_ok": ph, "exact": ex, "top": i == 0})
+                                  listing={"title": p.get("title"), "address": p.get("address"), "title_ok": t, "loc_ok": l, "phone_ok": ph, "exact": ex, "top": i == 0, "near_m": near})
             await evaluate()
             if not (best() and best()["score"] >= s["confirm_threshold"]):
                 queries.append(f"serper search: {q}")
@@ -302,6 +341,7 @@ async def find_website(b, force=False, slot=None):
            "source": ",".join(top["providers"]) if top else None,
            "candidates": [{k: c.get(k) for k in ("domain", "url", "final_url", "providers", "score", "signals", "listing")} for c in checked[:6]],
            "tiers": tiers, "queries": queries, "errors": errors, "rejected_domains": sorted(rejected), "stale": False,
+           "maps_listing": maps or (prev or {}).get("maps_listing"),
            "searched_at": iso()}
     await db.website_lookups.update_one({"business_id": b["id"]}, {"$set": doc}, upsert=True)
     await audit("website_search", "business", b["id"], {"status": status, "domain": doc["chosen_domain"],

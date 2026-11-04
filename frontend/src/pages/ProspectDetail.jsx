@@ -87,7 +87,7 @@ export default function ProspectDetail() {
           <div className="space-y-2 text-sm">
             {b.website ? <a href={b.website} target="_blank" rel="noreferrer" className="flex items-center gap-2 break-all text-primary" data-testid="detail-website-link"><ExternalLink className="h-4 w-4 shrink-0" />{b.website}</a> : <div className="text-amber-500" data-testid="detail-no-website">{{ no_website_found: "No website found after searching", website_unverified: "Possible website — needs your check", website_not_verified: "Website not yet verified" }[b.website_status] || "No website listed"}</div>}
             {b.website_source && <div className="text-xs text-muted-foreground" data-testid="detail-website-source">Website found via {sourceLabel(b.website_source)} · confidence {b.website_confidence}</div>}
-            {b.phone && <div className="flex items-center gap-2"><Phone className="h-4 w-4" />{b.phone}</div>}
+            {b.phone && <div className="flex items-center gap-2" data-testid="detail-phone"><Phone className="h-4 w-4" />{b.phone}{b.phone_source && <span className="text-xs text-muted-foreground" data-testid="detail-phone-source">(from Google Maps)</span>}</div>}
             {b.primary_email && <div className="flex items-center gap-2 break-all"><Mail className="h-4 w-4 shrink-0" />{b.primary_email}</div>}
             <div className="flex items-start gap-2"><MapPin className="mt-0.5 h-4 w-4 shrink-0" />{b.address || b.suburb}</div>
             <div className="pt-2 text-xs text-muted-foreground">Source: <a className="text-primary" href={b.source_url} target="_blank" rel="noreferrer">{b.source}</a> · discovered {fmtDate(b.discovered_at)}</div>

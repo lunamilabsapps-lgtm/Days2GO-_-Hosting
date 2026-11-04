@@ -43,6 +43,7 @@ export default function WebsiteDiscovery({ bid, lookup, business, onChange }) {
           <span className="text-muted-foreground">{lookup.confirmed_by && lookup.status === "found" ? `Confirmed by you ${fmtDate(lookup.confirmed_at)}` : `Searched ${fmtDate(lookup.searched_at)}${lookup.tiers?.length ? ` · ${lookup.tiers.map(label).join(" → ")}` : ""}`}{lookup.confidence ? ` · confidence ${lookup.confidence}` : ""}</span>
         </div>
       ) : <p className="text-muted-foreground">{listed ? "Website taken from the business listing — no search needed." : "No website search has run yet."}</p>}
+      {lookup?.maps_listing && <p className="text-xs text-muted-foreground" data-testid="website-maps-listing">Google Maps listing: {[lookup.maps_listing.title, lookup.maps_listing.address].filter(Boolean).join(", ")}{lookup.maps_listing.phone ? ` · ${lookup.maps_listing.phone}` : ""}{lookup.maps_listing.website ? "" : " · no website on the listing"}</p>}
       {lookup?.errors?.length > 0 && <div className="rounded-md bg-red-500/10 p-2 text-xs text-red-500">{lookup.errors.join("; ")}</div>}
       {lookup?.status === "needs_review" && <div className="rounded-md bg-amber-500/10 p-2 text-xs text-amber-600 dark:text-amber-400">The match isn't certain, so no email will be prepared until you confirm or reject the website.</div>}
       {(lookup?.candidates || []).filter((c) => c.domain !== lookup.chosen_domain || lookup.status !== "found").map((c) => <Candidate key={c.domain} c={c} onConfirm={confirm} />)}

@@ -35,4 +35,5 @@ Additional requirements: multiple campaigns; a permanent exclusion/suppression l
 
 ## Next tasks
 - User skipped SERPER_API_KEY / BRAVE_API_KEY at first; keys added 2026-11-04, both tested OK. Re-check of 174 prospects done: 17 found, 31 needs manual check, 127 not found; ~371 searches ≈ US$0.48.
+- 2026-11-04: Chain/branch confirmation (follows up to 6 location/store/branch pages, Google Maps listing within 1.5 km of mapped location, Maps street address on site; site must carry the business name). Phone saved from matching Google Maps listing (phone_source). Re-run of 150 review/not-found prospects (backend/website_backfill.py): +6 found, 71 phones added. Totals: 23 found, 29 needs review, 123 not found. Total search spend ≈ US$0.97.
 - User to enter the Resend key, webhook secret, IMAP mailbox, sender identity and compliance confirmations, then run a test campaign.
